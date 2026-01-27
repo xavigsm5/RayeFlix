@@ -33,6 +33,11 @@ import com.rayeflix.app.model.mockMovies
 import com.rayeflix.app.viewmodel.AppViewModel
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.clickable
 import com.rayeflix.app.ui.theme.DarkBackground
 import com.rayeflix.app.ui.theme.DarkSurface
@@ -327,6 +332,8 @@ fun MovieSection(title: String, movies: List<Movie>, onMovieClick: (Movie) -> Un
 
 @Composable
 fun MovieItem(movie: Movie, onClick: (Movie) -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+
     AsyncImage(
         model = movie.imageUrl,
         contentDescription = movie.title,
@@ -335,6 +342,9 @@ fun MovieItem(movie: Movie, onClick: (Movie) -> Unit) {
             .width(110.dp)
             .height(160.dp)
             .clip(RoundedCornerShape(4.dp))
+            .onFocusChanged { isFocused = it.isFocused }
+            .border(2.dp, if (isFocused) White else Color.Transparent, RoundedCornerShape(4.dp))
             .clickable { onClick(movie) }
+            .focusable() // Important for TV navigation
     )
 }
