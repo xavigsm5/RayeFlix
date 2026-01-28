@@ -13,7 +13,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Backspace
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
+
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -66,21 +71,89 @@ fun SearchScreen() {
                     focusedTextColor = White,
                     unfocusedTextColor = White
                 ),
-                modifier = Modifier.fillMaxWidth().border(1.dp, GrayText, RoundedCornerShape(4.dp))
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Transparent)
             )
 
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // On screen keyboard grid
+            val keys = listOf(
+                "A", "B", "C", "D", "E", "F",
+                "G", "H", "I", "J", "K", "L",
+                "M", "N", "O", "P", "Q", "R",
+                "S", "T", "U", "V", "W", "X",
+                "Y", "Z", "1", "2", "3", "4",
+                "5", "6", "7", "8", "9", "0"
+            )
+            
+            LazyVerticalGrid(
+                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(6),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(keys) { key ->
+                    var isFocused by remember { mutableStateOf(false) }
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isFocused) Color.LightGray else Color.Transparent)
+                            .border(1.dp, if (isFocused) White else Color.Gray.copy(alpha=0.5f), RoundedCornerShape(4.dp))
+                            .clickable { query += key }
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .focusable()
+                    ) {
+                        Text(key, color = if (isFocused) Color.Black else White, fontWeight = FontWeight.Bold)
+                    }
+                }
+                
+                // Space bar / Backspace
+                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
+                     var isFocused by remember { mutableStateOf(false) }
+                     Box(
+                         contentAlignment = Alignment.Center,
+                         modifier = Modifier
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isFocused) Color.LightGray else Color.Transparent)
+                             .border(1.dp, if (isFocused) White else Color.Gray.copy(alpha=0.5f), RoundedCornerShape(4.dp))
+                            .clickable { query += " " }
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .focusable()
+                     ) { 
+                         Text("SPACE", color = if (isFocused) Color.Black else White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                     }
+                }
+                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
+                     var isFocused by remember { mutableStateOf(false) }
+                     Box(
+                         contentAlignment = Alignment.Center,
+                         modifier = Modifier
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isFocused) Color.LightGray else Color.Transparent)
+                             .border(1.dp, if (isFocused) White else Color.Gray.copy(alpha=0.5f), RoundedCornerShape(4.dp))
+                            .clickable { if (query.isNotEmpty()) query = query.dropLast(1) }
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .focusable()
+                     ) { 
+                         Icon(Icons.Filled.Backspace, contentDescription = "Backspace", tint = if (isFocused) Color.Black else White)
+                     }
+                }
+            }
+            
             Spacer(modifier = Modifier.height(24.dp))
             
-            // Categories List
-            val categories = listOf("Comedies", "Action", "Sci-Fi", "Horror", "Documentaries", "Anime", "Romance")
+            // Categories List (Below keyboard)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                items(categories) { category ->
+                items(listOf("Comedies", "Action", "Sci-Fi")) { category ->
                     Text(
                         text = category,
                         color = GrayText,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clickable { query = category }
+                        modifier = Modifier.clickable { }
                     )
                 }
             }
@@ -89,7 +162,7 @@ fun SearchScreen() {
         // Right Side: Results Grid
         Column(modifier = Modifier.weight(1f).padding(24.dp)) {
             Text(
-                text = "Your Search Recommendations",
+                text = if (query.isEmpty()) "Your Search Recommendations" else "Results for \"$query\"",
                 color = White,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
@@ -97,11 +170,15 @@ fun SearchScreen() {
             )
 
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 180.dp),
+                columns = GridCells.Adaptive(minSize = 140.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(mockMovies) { movie ->
+                // Filter movies based on query or show all mock
+                val filtered = if (query.isEmpty()) mockMovies else mockMovies.filter { it.title.contains(query, ignoreCase = true) }
+                
+                items(filtered) { movie ->
+                    var isFocused by remember { mutableStateOf(false) }
                     Column {
                         AsyncImage(
                             model = movie.imageUrl,
@@ -109,10 +186,16 @@ fun SearchScreen() {
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(0.7f) // Portrait aspect ratio
+                                .aspectRatio(0.7f)
                                 .clip(RoundedCornerShape(4.dp))
+                                .onFocusChanged { isFocused = it.isFocused }
+                                .border(3.dp, if (isFocused) White else Color.Transparent, RoundedCornerShape(4.dp))
+                                .focusable()
+                                .clickable { }
                         )
-                         // Overlay logo or title could go here
+                        if (isFocused) {
+                            Text(movie.title, color = White, maxLines = 1, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                        }
                     }
                 }
             }

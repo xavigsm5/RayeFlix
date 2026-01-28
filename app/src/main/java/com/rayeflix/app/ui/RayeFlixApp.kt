@@ -74,11 +74,17 @@ fun RayeFlixApp() {
             composable(Screen.Search.route) { SearchScreen() }
             composable(Screen.MyNetflix.route) { Text("My Netflix", color = White) }
             composable(
-                route = "player?url={url}",
-                arguments = listOf(navArgument("url") { defaultValue = "" })
+                route = "player?url={url}&title={title}&subtitle={subtitle}",
+                arguments = listOf(
+                    navArgument("url") { defaultValue = "" },
+                    navArgument("title") { defaultValue = "" },
+                    navArgument("subtitle") { defaultValue = "" }
+                )
             ) { backStackEntry ->
                 val url = backStackEntry.arguments?.getString("url") ?: ""
-                PlayerScreen(url)
+                val title = backStackEntry.arguments?.getString("title") ?: ""
+                val subtitle = backStackEntry.arguments?.getString("subtitle") ?: ""
+                PlayerScreen(url, title, subtitle, navController)
             }
         }
     }

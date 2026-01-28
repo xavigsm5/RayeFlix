@@ -79,11 +79,14 @@ fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
             // Pick a random movie for Hero section from the first category or random
             val heroMovie = movies.shuffled().firstOrNull()
             
-            heroMovie?.let {
-                 HeroSection(movie = it, onPlayClick = { 
-                     navController.navigate("player?url=${it.streamUrl}")
-                 })
-            }
+             heroMovie?.let {
+                  HeroSection(movie = it, onPlayClick = { 
+                      val encodedUrl = android.net.Uri.encode(it.streamUrl)
+                      val encodedTitle = android.net.Uri.encode(it.title)
+                      val encodedSubtitle = android.net.Uri.encode("Movie") // Placeholder
+                      navController.navigate("player?url=$encodedUrl&title=$encodedTitle&subtitle=$encodedSubtitle")
+                  })
+             }
 
             categories.forEach { category ->
                  // Skip if category has no items (shouldn't happen with map)
@@ -93,7 +96,10 @@ fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
                          title = category, 
                          movies = categoryMovies, 
                          onMovieClick = { movie -> 
-                             navController.navigate("player?url=${movie.streamUrl}")
+                             val encodedUrl = android.net.Uri.encode(movie.streamUrl)
+                             val encodedTitle = android.net.Uri.encode(movie.title)
+                             val encodedSubtitle = android.net.Uri.encode("Movie") // Placeholder
+                             navController.navigate("player?url=$encodedUrl&title=$encodedTitle&subtitle=$encodedSubtitle")
                          }
                      )
                  }
@@ -140,40 +146,40 @@ fun TopBar(currentSection: String = "Inicio", onNavigate: (String) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             menuItems.forEach { item ->
+                var isFocused by remember { mutableStateOf(false) }
                 val isSelected = item == currentSection
-                if (isSelected) {
-                     Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(White)
-                            .clickable { 
-                                // Map menu items to routes or actions
-                                val route = when(item) {
-                                    "Inicio" -> "home"
-                                    "Mi Netflix" -> "mynetflix"
-                                    else -> "home" // Placeholder for Series/Movies filters
-                                }
-                                onNavigate(route)
-                            }
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                    ) {
-                         Text(item, color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                } else {
-                    Text(
-                        text = item,
-                        color = GrayText,
-                        fontWeight = FontWeight.Bold, 
-                        fontSize = 16.sp, 
-                        modifier = Modifier.clickable { 
-                             val route = when(item) {
-                                "Inicio" -> "home" // Force reload home
+                
+                // Style: White Button if Focused OR Selected (User preference for navigation)
+                // The user specifically wants the "white button" to move with navigation.
+                // We use isFocused to drive the style during navigation.
+                
+                val isActive = isFocused
+                
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (isActive) White else Color.Transparent)
+                        .onFocusChanged { isFocused = it.isFocused }
+                        .focusable()
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null // Remove default grey ripple/box
+                        ) { 
+                            val route = when(item) {
+                                "Inicio" -> "home"
                                 "Mi Netflix" -> "mynetflix"
                                 else -> "home"
                             }
-                            onNavigate(route) 
+                            onNavigate(route)
                         }
-                    )
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                     Text(
+                         text = item, 
+                         color = if (isActive) Color.Black else GrayText, 
+                         fontWeight = FontWeight.Bold, 
+                         fontSize = if (isActive) 16.sp else 16.sp
+                     )
                 }
             }
         }
@@ -334,17 +340,60 @@ fun MovieSection(title: String, movies: List<Movie>, onMovieClick: (Movie) -> Un
 fun MovieItem(movie: Movie, onClick: (Movie) -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
 
-    AsyncImage(
-        model = movie.imageUrl,
-        contentDescription = movie.title,
-        contentScale = ContentScale.Crop,
+    Column(
         modifier = Modifier
-            .width(110.dp)
-            .height(160.dp)
-            .clip(RoundedCornerShape(4.dp))
+            .width(120.dp) // Increased width for selection space
+            .padding(horizontal = 4.dp, vertical = 8.dp)
             .onFocusChanged { isFocused = it.isFocused }
-            .border(2.dp, if (isFocused) White else Color.Transparent, RoundedCornerShape(4.dp))
-            .clickable { onClick(movie) }
-            .focusable() // Important for TV navigation
-    )
+            .focusable()
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null 
+            ) { onClick(movie) }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                // Border OUTSIDE the clip
+                .border(4.dp, if (isFocused) White else Color.Transparent, RoundedCornerShape(4.dp))
+                .padding(2.dp) // Space between border and image
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color.DarkGray)
+        ) {
+            if (movie.imageUrl.isNotEmpty()) {
+                AsyncImage(
+                    model = movie.imageUrl,
+                    contentDescription = movie.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                    onError = { }
+                )
+            }
+            
+            if (movie.imageUrl.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = movie.title.take(1).uppercase(),
+                        color = White,
+                        fontSize = 48.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            
+            // Overlay gradient for text legibility if needed, but Netflix style usually clean.
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Text(
+            text = movie.title,
+            color = if (isFocused) White else GrayText,
+            fontSize = 12.sp,
+            maxLines = 1,
+            fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Normal,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+        )
+    }
 }

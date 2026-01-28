@@ -11,6 +11,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.focusable
+import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,17 +47,12 @@ fun ProfileSelectionScreen(
     Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
         // Background Image (Dynamic based on selected profile)
         activeProfile?.let { profile ->
-            // Use a random movie image associated with profile or generic one if avatar
+                // Use Netflix-like background pattern or collage
             AsyncImage(
-                model = androidx.compose.ui.platform.LocalContext.current.let { context ->
-                    coil.request.ImageRequest.Builder(context)
-                        .data("https://image.tmdb.org/t/p/w1280/r7DuyYJ0N3cD8bRKsR5Ygq2P7oa.jpg")
-                        .crossfade(true)
-                        .build()
-                },
+                model = "https://assets.nflxext.com/ffe/siteui/vlv3/f841d4c7-10e1-40af-bcae-07a3f8dc141a/f6d7434e-d6de-4185-a6d4-c77a2d08737b/US-en-20220502-popsignuptwoweeks-perspective_alpha_website_small.jpg",
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.6f }
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.5f }
             )
             
             // Gradient Overlay
@@ -65,7 +63,7 @@ fun ProfileSelectionScreen(
                         Brush.horizontalGradient(
                             colors = listOf(Color.Black, Color.Transparent),
                             startX = 0f,
-                            endX = 1000f
+                            endX = 1500f // Extended gradient
                         )
                     )
             )
@@ -78,28 +76,29 @@ fun ProfileSelectionScreen(
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(300.dp) // Fixed sidebar width
-                    .background(Color.Black.copy(alpha = 0.5f)) // Slight scrim
-                    .padding(32.dp),
+                    .width(350.dp) // Wider sidebar
+                    .background(Color.Transparent) // Remove the scrim box
+                    .padding(start = 60.dp, top = 60.dp, bottom = 60.dp, end = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+                 // ... Logo and Title ...
                 Text(
                     text = "RayeFlix",
                     color = NetflixRed,
-                    fontSize = 32.sp,
+                    fontSize = 40.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 8.dp).align(Alignment.Start)
                 )
                 Text(
-                    text = "Elige un perfil",
-                    color = White,
-                    fontSize = 18.sp,
+                    text = "¿Quién eres?",
+                    color = Color.LightGray,
+                    fontSize = 24.sp,
                     modifier = Modifier.padding(bottom = 32.dp).align(Alignment.Start)
                 )
 
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     items(profiles) { profile ->
@@ -126,21 +125,11 @@ fun ProfileSelectionScreen(
                 }
             }
             
-            // Right side area (Empty, reveals background)
-            Box(modifier = Modifier.weight(1f)) {
-                 activeProfile?.let { 
-                     Text(
-                        text = it.name,
-                        fontSize = 40.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = White,
-                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 32.dp)
-                     )
-                 }
-            }
+            // Right side area
+             Box(modifier = Modifier.weight(1f))
         }
     }
-
+    // ... Dialog ...
     if (showAddProfileDialog) {
         AddProfileDialog(
             onDismiss = { showAddProfileDialog = false },
@@ -157,66 +146,87 @@ fun ProfileSidebarItem(
     profile: Profile, 
     isSelected: Boolean, 
     onClick: () -> Unit,
-    onHover: () -> Unit // Simulate selection for composition
+    onHover: () -> Unit
 ) {
-    // In mobile, click is select. In TV, focus is select. 
-    // We treat click as select for now, but highlight "selectedProfileId"
+    var isFocused by remember { mutableStateOf(false) }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { 
-                onHover() // Select first
-                onClick() // Then enter
+            .onFocusChanged { 
+                isFocused = it.isFocused 
+                if (isFocused) onHover()
             }
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null 
+            ) { 
+                onHover()
+                onClick() 
+            }
+            .focusable() // Critical: This makes the Row capable of taking D-Pad focus
+            .padding(vertical = 8.dp) // Spacing
     ) {
-        AsyncImage(
-            model = profile.avatarUrl,
-            contentDescription = profile.name,
+        // Avatar
+        Box(
             modifier = Modifier
-                .size(60.dp)
-                .clip(RoundedCornerShape(4.dp))
+                .size(70.dp)
+                // Border drawn around the box
                 .border(
-                    width = if (isSelected) 3.dp else 0.dp,
-                    color = if (isSelected) White else Color.Transparent,
+                    width = if (isFocused) 4.dp else 0.dp,
+                    color = if (isFocused) White else Color.Transparent,
                     shape = RoundedCornerShape(4.dp)
-                ),
-            contentScale = ContentScale.Crop
-        )
-        Spacer(modifier = Modifier.width(16.dp))
+                )
+                .padding(2.dp) // Space between border and image
+                .clip(RoundedCornerShape(4.dp))
+        ) {
+            AsyncImage(
+                model = profile.avatarUrl,
+                contentDescription = profile.name,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(20.dp))
+        
         Text(
             text = profile.name,
-            color = if (isSelected) White else Color.LightGray,
-            fontSize = if (isSelected) 22.sp else 18.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+            color = if (isFocused) White else Color.Gray,
+            fontSize = if (isFocused) 26.sp else 22.sp,
+            fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Normal,
+            modifier = Modifier.animateContentSize()
         )
     }
 }
 
 @Composable
 fun AddProfileButton(isSelected: Boolean, onClick: () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
+            .focusable()
+            .padding(vertical = 8.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(60.dp)
-                .background(Color.Transparent)
-                .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+                .size(70.dp)
                 .border(
-                    width = if (isSelected) 3.dp else 0.dp,
-                    color = if (isSelected) White else Color.Transparent,
+                    width = if (isFocused) 4.dp else 1.dp,
+                    color = if (isFocused) White else Color.Gray,
                     shape = RoundedCornerShape(4.dp)
-                ),
+                )
+                .padding(if(isFocused) 2.dp else 0.dp)
+                .background(Color.Transparent, RoundedCornerShape(4.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.Add, contentDescription = "Add", tint = White, modifier = Modifier.size(32.dp))
+             Icon(Icons.Default.Add, contentDescription = "Add", tint = White, modifier = Modifier.size(32.dp))
         }
-        Spacer(modifier = Modifier.width(16.dp))
-       // Text("Añadir perfil", color = Color.Gray, fontSize = 18.sp)
     }
 }
 
