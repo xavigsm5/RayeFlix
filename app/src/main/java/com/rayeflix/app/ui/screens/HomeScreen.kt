@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -47,112 +48,129 @@ import com.rayeflix.app.ui.theme.GrayText
 @Composable
 fun HomeScreen(navController: NavController, viewModel: AppViewModel) {
     val scrollState = rememberScrollState()
-    val movies by viewModel.movies.collectAsState()
-    val categorizedMovies by viewModel.categorizedMovies.collectAsState()
+    val displayedContent by viewModel.displayedContent.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val currentTab by viewModel.currentTab.collectAsState()
+    
     
     // Sort categories alphabetically or by custom order if needed
-    val categories = categorizedMovies.keys.sorted()
+    
+    // Sort categories alphabetically or by custom order if needed
+    val categories = displayedContent.keys.sorted()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .verticalScroll(scrollState)
     ) {
-        TopBar(onNavigate = { route -> 
-            if (route == "profile") {
-                // Return to profile selection (pop logic handled by simple navigate if we want stack)
-                 navController.navigate("profile") {
-                     popUpTo("home") { inclusive = true }
-                 }
-            } else {
-                navController.navigate(route)
+        TopBar(
+            currentSection = currentTab, 
+            onNavigate = { route -> 
+                if (route == "search" || route == "profile") {
+                     navController.navigate(route)
+                }
+            },
+            onTabSelected = { tab ->
+                viewModel.switchTab(tab)
             }
-        })
+        )
         
         if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize().height(200.dp), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = com.rayeflix.app.ui.theme.NetflixRed)
             }
-        } else if (movies.isNotEmpty()) {
-            // Pick a random movie for Hero section from the first category or random
-            val heroMovie = movies.shuffled().firstOrNull()
-            
-             heroMovie?.let {
-                  HeroSection(movie = it, onPlayClick = { 
-                      val encodedUrl = android.net.Uri.encode(it.streamUrl)
-                      val encodedTitle = android.net.Uri.encode(it.title)
-                      val encodedSubtitle = android.net.Uri.encode("Movie") // Placeholder
-                      navController.navigate("player?url=$encodedUrl&title=$encodedTitle&subtitle=$encodedSubtitle")
-                  })
-             }
-
-            categories.forEach { category ->
-                 // Skip if category has no items (shouldn't happen with map)
-                 val categoryMovies = categorizedMovies[category] ?: emptyList()
-                 if (categoryMovies.isNotEmpty()) {
-                     MovieSection(
-                         title = category, 
-                         movies = categoryMovies, 
-                         onMovieClick = { movie -> 
-                             val encodedUrl = android.net.Uri.encode(movie.streamUrl)
-                             val encodedTitle = android.net.Uri.encode(movie.title)
-                             val encodedSubtitle = android.net.Uri.encode("Movie") // Placeholder
-                             navController.navigate("player?url=$encodedUrl&title=$encodedTitle&subtitle=$encodedSubtitle")
-                         }
-                     )
-                 }
-            }
         } else {
-             // Empty state or retry
-             Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                 Text("No content found for this profile.", color = White)
+             // Main Content Scrollable
+             Column(modifier = Modifier.verticalScroll(scrollState)) {
+                 
+                 // Hero Section (Random item from first category)
+                 val firstCategory = categories.firstOrNull()
+                 val heroItem = if (firstCategory != null) displayedContent[firstCategory]?.shuffled()?.firstOrNull() else null
+                 
+                 heroItem?.let { item ->
+                    HeroSection(movie = item, onPlayClick = {
+                        if (item.type == com.rayeflix.app.model.ContentType.SERIES) {
+                            item.seriesName?.let { name ->
+                                val encoded = android.net.Uri.encode(name)
+                                navController.navigate("series_detail/$encoded")
+                            }
+                        } else if (item.type == com.rayeflix.app.model.ContentType.LIVE) {
+                            val encodedUrl = android.net.Uri.encode(item.streamUrl)
+                            val encodedTitle = android.net.Uri.encode(item.title)
+                            val encodedSubtitle = android.net.Uri.encode("En Vivo")
+                            navController.navigate("player?url=$encodedUrl&title=$encodedTitle&subtitle=$encodedSubtitle")
+                        } else {
+                            navController.navigate("movie_detail/${item.id}")
+                        }
+                    })
+                 }
+
+                 categories.forEach { category ->
+                     val items = displayedContent[category] ?: emptyList()
+                     if (items.isNotEmpty()) {
+                         MovieSection(
+                             title = category, 
+                             movies = items, 
+                             onMovieClick = { movie -> 
+                                if (movie.type == com.rayeflix.app.model.ContentType.SERIES) {
+                                    movie.seriesName?.let { name ->
+                                        val encoded = android.net.Uri.encode(name)
+                                        navController.navigate("series_detail/$encoded")
+                                    }
+                                } else if (movie.type == com.rayeflix.app.model.ContentType.LIVE) {
+                                     val encodedUrl = android.net.Uri.encode(movie.streamUrl)
+                                     val encodedTitle = android.net.Uri.encode(movie.title)
+                                     val encodedSubtitle = android.net.Uri.encode(category)
+                                     navController.navigate("player?url=$encodedUrl&title=$encodedTitle&subtitle=$encodedSubtitle")
+                                } else {
+                                     navController.navigate("movie_detail/${movie.id}")
+                                }
+                             }
+                         )
+                     }
+                 }
+                 
+                 Spacer(modifier = Modifier.height(100.dp))
              }
         }
-        
-        Spacer(modifier = Modifier.height(100.dp)) // Padding for bottom bar
     }
+    
+    // Series Detail Dialog / Bottom Sheet
+
 }
 
 @Composable
-// Annotation duplicate removed
-// Annotation duplicate removed
-fun TopBar(currentSection: String = "Inicio", onNavigate: (String) -> Unit) {
+fun TopBar(currentSection: String, onNavigate: (String) -> Unit, onTabSelected: (String) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 48.dp, vertical = 24.dp)
             .statusBarsPadding(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Start
+        verticalAlignment = Alignment.CenterVertically
     ) {
         // Logo
-        Image(
-            painter = painterResource(id = android.R.drawable.ic_media_play), // Placeholder for Netflix "N"
-            contentDescription = null,
+        Text(
+            text = "RayeFlix",
+            color = com.rayeflix.app.ui.theme.NetflixRed,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
             modifier = Modifier
-                .size(40.dp)
-                .clickable { onNavigate("home") }
+                .clickable { onTabSelected("Inicio") }
+                .padding(end = 48.dp)
         )
-        
-        Spacer(modifier = Modifier.width(48.dp))
 
         // Menu Items
-        val menuItems = listOf("Inicio", "Series", "Películas", "Mi Netflix")
+        val menuItems = listOf("Inicio", "Series", "Películas", "TV en vivo")
 
         Row(
             verticalAlignment = Alignment.CenterVertically, 
             horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             menuItems.forEach { item ->
-                var isFocused by remember { mutableStateOf(false) }
                 val isSelected = item == currentSection
+                var isFocused by remember { mutableStateOf(false) }
                 
-                // Style: White Button if Focused OR Selected (User preference for navigation)
-                // The user specifically wants the "white button" to move with navigation.
-                // We use isFocused to drive the style during navigation.
-                
+                // Keep the focused/selected logic
                 val isActive = isFocused
                 
                 Box(
@@ -163,22 +181,17 @@ fun TopBar(currentSection: String = "Inicio", onNavigate: (String) -> Unit) {
                         .focusable()
                         .clickable(
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                            indication = null // Remove default grey ripple/box
+                            indication = null
                         ) { 
-                            val route = when(item) {
-                                "Inicio" -> "home"
-                                "Mi Netflix" -> "mynetflix"
-                                else -> "home"
-                            }
-                            onNavigate(route)
+                            onTabSelected(item)
                         }
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                      Text(
                          text = item, 
-                         color = if (isActive) Color.Black else GrayText, 
+                         color = if (isActive) Color.Black else if (isSelected) White else GrayText, 
                          fontWeight = FontWeight.Bold, 
-                         fontSize = if (isActive) 16.sp else 16.sp
+                         fontSize = 16.sp
                      )
                 }
             }
@@ -186,7 +199,7 @@ fun TopBar(currentSection: String = "Inicio", onNavigate: (String) -> Unit) {
         
         Spacer(modifier = Modifier.weight(1f))
         
-        // Search & Profile Icons (Right side)
+        // Search & Profile
         Icon(
             Icons.Default.Search, 
             contentDescription = "Search", 
@@ -196,7 +209,6 @@ fun TopBar(currentSection: String = "Inicio", onNavigate: (String) -> Unit) {
                 .clickable { onNavigate("search") }
         )
         Spacer(modifier = Modifier.width(24.dp))
-        // Avatar placeholder -> Go to Profile Selection
         Box(
             modifier = Modifier
                 .size(32.dp)
@@ -207,11 +219,106 @@ fun TopBar(currentSection: String = "Inicio", onNavigate: (String) -> Unit) {
 }
 
 @Composable
+fun SeriesDetailDialog(
+    series: com.rayeflix.app.model.Series,
+    onDismiss: () -> Unit,
+    onEpisodeClick: (Movie) -> Unit
+) {
+    var selectedSeason by remember { mutableStateOf(series.episodes.keys.minOrNull() ?: 1) }
+    
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF141414)),
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .fillMaxHeight(0.9f)
+                .padding(16.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                // Cover Image
+                AsyncImage(
+                    model = series.coverUrl,
+                    contentDescription = series.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+                
+                // Details
+                Column(modifier = Modifier.weight(2f).padding(24.dp)) {
+                    Text(series.name, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = White)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Season Selector
+                    Text("Temporadas", color = GrayText, fontSize = 14.sp)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+                        items(series.episodes.keys.sorted()) { season ->
+                            val isSelected = season == selectedSeason
+                            Button(
+                                onClick = { selectedSeason = season },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSelected) com.rayeflix.app.ui.theme.NetflixRed else Color.DarkGray
+                                )
+                            ) {
+                                Text("Temporada $season", color = White)
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Divider(color = Color.DarkGray)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Episodes List
+                    val episodes = series.episodes[selectedSeason] ?: emptyList()
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(episodes) { episode ->
+                            var isFocused by remember { mutableStateOf(false) }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isFocused) Color.Gray else Color.Transparent)
+                                    .clickable { onEpisodeClick(episode) }
+                                    .onFocusChanged { isFocused = it.isFocused }
+                                    .focusable()
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "${episode.episodeNumber}. ${episode.title.substringAfter("E${episode.episodeNumber}")}", 
+                                    color = White, 
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = White)
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.weight(1f))
+                    Button(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+                        Text("Cerrar")
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Re-using HeroSection, MovieSection, MovieItem from previous file (assuming imports are cleaner in replace, 
+// but since I'm rewriting the file content partially I need to be careful).
+// The user tool `replace_file_content` replaces a contiguous block. 
+// I should make sure I include the rest of the functions if I'm replacing the whole file implicitly or relying on block definition.
+// The previous file had HeroSection, MovieSection, MovieItem. I will include them here to be safe and ensure they handle the new logic if needed.
+// Actually, MovieItem handles generic Movie. HeroSection handles generic Movie. They should work fine with "Series as Movie".
+
+@Composable
 fun HeroSection(movie: Movie, onPlayClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(550.dp) // Taller hero
+            .height(550.dp)
     ) {
         AsyncImage(
             model = movie.imageUrl,
@@ -219,25 +326,18 @@ fun HeroSection(movie: Movie, onPlayClick: () -> Unit) {
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
-        
-        // Gradient overlay (Simulating the vignette in Image 3)
+        // ... (Gradients kept simple for brevity in update, but logic is same)
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.4f), 
-                            Color.Transparent, 
-                            DarkBackground
-                        ),
-                        startY = 0f,
-                        endY = Float.POSITIVE_INFINITY
+                        colors = listOf(Color.Black.copy(alpha = 0.4f), Color.Transparent, DarkBackground),
+                        startY = 0f, endY = Float.POSITIVE_INFINITY
                     )
                 )
         )
-        // Left side gradient for text legibility
-        Box(
+         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
@@ -252,64 +352,34 @@ fun HeroSection(movie: Movie, onPlayClick: () -> Unit) {
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = 48.dp, bottom = 48.dp)
-                .widthIn(max = 500.dp) // Limit width for TV style
+                .widthIn(max = 500.dp)
         ) {
-            // Title Logo Simulation
             Text(
                 text = movie.title.uppercase(),
                 fontSize = 56.sp,
                 fontWeight = FontWeight.Black,
-                color = com.rayeflix.app.ui.theme.NetflixRed, // Use Red for title similarity
+                color = com.rayeflix.app.ui.theme.NetflixRed,
                 lineHeight = 60.sp,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
             
-            // Metadata Row
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 16.dp)
-            ) {
-                Text("TV-MA", color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.width(12.dp))
-                Text("2024", color = GrayText, fontSize = 14.sp)
-                Spacer(modifier = Modifier.width(12.dp))
-                Text("2 Seasons", color = GrayText, fontSize = 14.sp)
-                Spacer(modifier = Modifier.width(12.dp))
-                Box(modifier = Modifier.border(1.dp, GrayText, RoundedCornerShape(2.dp)).padding(horizontal = 4.dp)) {
-                    Text("HD", color = GrayText, fontSize = 10.sp)
-                }
-            }
-
             Text(
-                text = movie.description.ifEmpty { "A fast-paced drama about a young tech genius who uncovers a global conspiracy." },
+                text = movie.description.ifEmpty { "Explora este contenido exclusivo en RayeFlix." },
                 color = White,
                 fontSize = 16.sp,
                 maxLines = 3,
                 modifier = Modifier.padding(bottom = 24.dp)
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Button(
-                    onClick = onPlayClick,
-                    colors = ButtonDefaults.buttonColors(containerColor = White),
-                    shape = RoundedCornerShape(4.dp),
-                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(28.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Reproducir", color = Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                }
-
-                Button(
-                    onClick = { /* Info */ },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Gray.copy(alpha = 0.4f)),
-                    shape = RoundedCornerShape(4.dp),
-                     contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                ) {
-                    Icon(Icons.Default.Info, contentDescription = null, tint = White, modifier = Modifier.size(28.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Más info", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                }
+            Button(
+                onClick = onPlayClick,
+                colors = ButtonDefaults.buttonColors(containerColor = White),
+                shape = RoundedCornerShape(4.dp),
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(28.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (movie.type == com.rayeflix.app.model.ContentType.SERIES) "Ver Temporadas" else "Reproducir", color = Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -342,7 +412,7 @@ fun MovieItem(movie: Movie, onClick: (Movie) -> Unit) {
 
     Column(
         modifier = Modifier
-            .width(120.dp) // Increased width for selection space
+            .width(120.dp)
             .padding(horizontal = 4.dp, vertical = 8.dp)
             .onFocusChanged { isFocused = it.isFocused }
             .focusable()
@@ -355,9 +425,8 @@ fun MovieItem(movie: Movie, onClick: (Movie) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(160.dp)
-                // Border OUTSIDE the clip
                 .border(4.dp, if (isFocused) White else Color.Transparent, RoundedCornerShape(4.dp))
-                .padding(2.dp) // Space between border and image
+                .padding(2.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .background(Color.DarkGray)
         ) {
@@ -366,27 +435,21 @@ fun MovieItem(movie: Movie, onClick: (Movie) -> Unit) {
                     model = movie.imageUrl,
                     contentDescription = movie.title,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                    onError = { }
+                    modifier = Modifier.fillMaxSize()
                 )
-            }
-            
-            if (movie.imageUrl.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = movie.title.take(1).uppercase(),
-                        color = White,
-                        fontSize = 48.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+            } else {
+                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(movie.title.take(1).uppercase(), color = White, fontSize = 48.sp, fontWeight = FontWeight.Bold)
                 }
             }
-            
-            // Overlay gradient for text legibility if needed, but Netflix style usually clean.
+            // Series Indicator
+            if (movie.type == com.rayeflix.app.model.ContentType.SERIES) {
+                 Box(modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).background(com.rayeflix.app.ui.theme.NetflixRed, RoundedCornerShape(2.dp)).padding(horizontal = 4.dp)) {
+                     Text("SERIE", color = White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                 }
+            }
         }
-        
         Spacer(modifier = Modifier.height(8.dp))
-        
         Text(
             text = movie.title,
             color = if (isFocused) White else GrayText,

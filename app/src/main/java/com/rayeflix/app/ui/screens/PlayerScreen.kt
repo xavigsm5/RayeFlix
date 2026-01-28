@@ -33,7 +33,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -51,9 +50,18 @@ import kotlinx.coroutines.delay
 
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.nativeKeyCode
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.key.KeyEventType
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import android.util.Log
+import androidx.media3.common.C
+import androidx.media3.common.Tracks
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackGroup
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.upstream.DefaultAllocator
+import androidx.media3.common.Format
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -63,6 +71,9 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
     var currentPosition by remember { mutableStateOf(0L) }
     var totalDuration by remember { mutableStateOf(0L) }
     var showControls by remember { mutableStateOf(true) }
+    
+    // Inactivity Timer State
+    var lastInteractionTime by remember { mutableStateOf(System.currentTimeMillis()) }
     
     // Focus Requester for TV Navigation
     val playButtonFocusRequester = remember { FocusRequester() }
@@ -74,14 +85,128 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
     
     // Quality / Track Selection States
     var showQualityDialog by remember { mutableStateOf(false) }
-    var selectedLanguage by remember { mutableStateOf("Spanish") }
+    var showAudioDialog by remember { mutableStateOf(false) }
+    var showSubtitleDialog by remember { mutableStateOf(false) }
+    
+    var audioTracks by remember { mutableStateOf<List<TrackInfo>>(emptyList()) }
+    var subtitleTracks by remember { mutableStateOf<List<TrackInfo>>(emptyList()) }
+    var videoTracks by remember { mutableStateOf<List<TrackInfo>>(emptyList()) }
+    
+    var selectedAudioTrack by remember { mutableStateOf<TrackInfo?>(null) }
+    var selectedSubtitleTrack by remember { mutableStateOf<TrackInfo?>(null) }
+    
+    // Helper to register interaction
+    fun onInteraction() {
+        lastInteractionTime = System.currentTimeMillis()
+        if (!showControls) showControls = true
+    }
 
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(decodedUrl))
-            prepare()
-            playWhenReady = true
+        val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent(userAgent)
+            .setAllowCrossProtocolRedirects(true)
+        
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        
+        // Custom LoadControl for better buffering (4K support)
+        val loadControl = DefaultLoadControl.Builder()
+            .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
+            .setBufferDurationsMs(
+                15_000, // Min buffer 15s
+                50_000, // Max buffer 50s
+                5000, // Buffer for playback (start after 5s)
+                10_000  // Buffer for rebuffer (adjust to 10s)
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+            
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+
+        ExoPlayer.Builder(context, renderersFactory)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setLoadControl(loadControl)
+            .setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true
+            )
+            .build()
+            .apply {
+                setMediaItem(MediaItem.fromUri(decodedUrl))
+                prepare()
+                playWhenReady = true
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        Log.e("PlayerScreen", "ExoPlayer Error: ${error.message}", error)
+                    }
+
+                    // ...
+                    // Ensure the listener is kept clean, we just replace the block start
+                    override fun onTracksChanged(tracks: Tracks) {
+                        val newAudio = mutableListOf<TrackInfo>()
+                        val newSubtitle = mutableListOf<TrackInfo>()
+                        val newVideo = mutableListOf<TrackInfo>()
+                        
+                        for (group in tracks.groups) {
+                            for (i in 0 until group.length) {
+                                val format = group.getTrackFormat(i)
+                                val isSelected = group.isSelected
+                                val trackName = when(group.type) {
+                                    C.TRACK_TYPE_AUDIO -> "${format.language ?: "Unknown"} ${format.label ?: ""}".trim()
+                                    C.TRACK_TYPE_TEXT -> "${format.language ?: "Unknown"} ${format.label ?: ""}".trim()
+                                    C.TRACK_TYPE_VIDEO -> {
+                                        if (format.height != Format.NO_VALUE) "${format.height}p" else "Auto / Unknown"
+                                    } 
+                                    else -> ""
+                                }
+                                
+                                val trackId = format.id ?: "$i"
+                                val info = TrackInfo(trackId, trackName.ifEmpty { "Track ${i+1}" }, group.mediaTrackGroup, i)
+                                
+                                when(group.type) {
+                                    C.TRACK_TYPE_AUDIO -> {
+                                        newAudio.add(info)
+                                        if (isSelected) selectedAudioTrack = info
+                                    }
+                                    C.TRACK_TYPE_TEXT -> {
+                                        newSubtitle.add(info)
+                                        if (isSelected) selectedSubtitleTrack = info
+                                    }
+                                    C.TRACK_TYPE_VIDEO -> {
+                                        // Filter duplicates or unhelpful labels
+                                        if (newVideo.none { it.name == info.name } && info.name.contains("p")) {
+                                            newVideo.add(info)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        audioTracks = newAudio
+                        subtitleTracks = newSubtitle
+                        videoTracks = newVideo.sortedByDescending { it.name.replace("p","").toIntOrNull() ?: 0 }
+                    }
+                })
+            }
+    }
+    
+    // Track Selection Helper
+    fun selectTrack(track: TrackInfo?, type: Int) {
+        val parametersBuilder = exoPlayer.trackSelectionParameters.buildUpon()
+        if (track == null) {
+            parametersBuilder.clearOverridesOfType(type)
+            if (type == C.TRACK_TYPE_TEXT) {
+                 parametersBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            }
+        } else {
+             parametersBuilder.setTrackTypeDisabled(type, false)
+             // Correctly passing TrackGroup and index
+             parametersBuilder.setOverrideForType(TrackSelectionOverride(track.group, track.index))
         }
+        exoPlayer.trackSelectionParameters = parametersBuilder.build()
     }
 
     // Update progress
@@ -92,24 +217,25 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                 totalDuration = exoPlayer.duration.coerceAtLeast(0L)
                 isPlaying = exoPlayer.isPlaying
             } catch (e: Exception) {
-                // Ignore crash if player is released
                 break
             }
             delay(1000)
         }
     }
 
-    // Auto hide controls
-    LaunchedEffect(showControls, isPlaying) {
+    // Auto hide controls logic
+    LaunchedEffect(lastInteractionTime, isPlaying, showControls) {
+        if (showControls && isPlaying) {
+             delay(3000)
+             showControls = false
+        }
+    }
+    
+    // Initial Focus
+    LaunchedEffect(showControls) {
         if (showControls) {
-            // When controls show, request focus on Play button to enable partial navigation
-            if (isPlaying) { 
-                 // Only auto-hide if playing. If paused, keep controls.
-                 delay(4000)
-                 showControls = false
-            }
-            // Request focus when controls appear
             try {
+                delay(100) 
                 playButtonFocusRequester.requestFocus()
             } catch (e: Exception) { e.printStackTrace() }
         }
@@ -117,7 +243,11 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
 
     DisposableEffect(Unit) {
         onDispose {
-            exoPlayer.release()
+             exoPlayer.stop()
+             exoPlayer.clearMediaItems()
+             android.os.Handler(android.os.Looper.getMainLooper()).post {
+                 try { exoPlayer.release() } catch (e: Exception) { e.printStackTrace() }
+             }
         }
     }
 
@@ -126,25 +256,13 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
             .fillMaxSize()
             .background(Color.Black)
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                onInteraction()
                 showControls = !showControls
             }
             .onKeyEvent { event ->
                 if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
+                    onInteraction() 
                     when (event.nativeKeyEvent.keyCode) {
-                        android.view.KeyEvent.KEYCODE_DPAD_UP -> {
-                             if (showControls) {
-                                showControls = false
-                                return@onKeyEvent true
-                            }
-                        }
-                        android.view.KeyEvent.KEYCODE_DPAD_DOWN, android.view.KeyEvent.KEYCODE_DPAD_CENTER, android.view.KeyEvent.KEYCODE_ENTER -> {
-                            if (!showControls) {
-                                showControls = true
-                                return@onKeyEvent true 
-                            }
-                            // Allow event to go to children (buttons)
-                            return@onKeyEvent false
-                        }
                         android.view.KeyEvent.KEYCODE_BACK -> {
                             navController.popBackStack()
                             return@onKeyEvent true
@@ -160,6 +278,13 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                 PlayerView(context).apply {
                     player = exoPlayer
                     useController = false 
+                    // Use TextureView to avoid SurfaceView overlay issues on some emulators/devices causing generic errors
+                    // However, PlayerView doesn't have a simple setter for specific surface type at runtime easily without XML. 
+                    // But we can try to set it via layout params or assume default.
+                    // A common fix for "unrecoverably broken" is enabling TextureView.
+                    // But we cant easily set it here without XML layout inflation.
+                    // Let keep it simple but ensure keepScreenOn is true.
+                    keepScreenOn = true
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -181,7 +306,7 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.4f))
             ) {
-                // ... Top Overlay (same as before) ...
+                // Top Overlay
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -204,7 +329,10 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                             
                             var isReplayFocused by remember { mutableStateOf(false) }
                             IconButton(
-                                onClick = { exoPlayer.seekBack() },
+                                onClick = { 
+                                    onInteraction()
+                                    exoPlayer.seekBack() 
+                                },
                                 modifier = Modifier
                                     .onFocusChanged { isReplayFocused = it.isFocused }
                                     .border(2.dp, if (isReplayFocused) White else Color.Transparent, CircleShape)
@@ -215,7 +343,10 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                             
                             var isSkipFocused by remember { mutableStateOf(false) }
                             IconButton(
-                                onClick = { exoPlayer.seekForward() },
+                                onClick = { 
+                                    onInteraction()
+                                    exoPlayer.seekForward() 
+                                },
                                 modifier = Modifier
                                     .onFocusChanged { isSkipFocused = it.isFocused }
                                     .border(2.dp, if (isSkipFocused) White else Color.Transparent, CircleShape)
@@ -259,6 +390,7 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                                     interactionSource = interactionSource, 
                                     indication = androidx.compose.material.ripple.rememberRipple(bounded = true, color = Color.Red)
                                     ) {
+                                    onInteraction()
                                     if (isPlaying) exoPlayer.pause() else exoPlayer.play()
                                     isPlaying = !isPlaying
                                 }
@@ -280,20 +412,16 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                         
                         Spacer(modifier = Modifier.width(16.dp))
                         
-                        // Progress Bar - Focusable?
-                        // Sliders are hard to focus on TV. Usually we just show them. 
-                        // If user wants to seek, we use D-pad Left/Right which we capture at top level or on a specific "Seekbar" focusable.
-                        // For now we skip focusing the slider directly to avoid trap.
                         Slider(
                              value = currentPosition.toFloat(),
-                             onValueChange = {},
+                             onValueChange = {}, // Read-only for now or add seek logic
                              valueRange = 0f..totalDuration.toFloat().coerceAtLeast(1f),
                              colors = SliderDefaults.colors(
                                  thumbColor = NetflixRed,
                                  activeTrackColor = NetflixRed,
                                  inactiveTrackColor = Color.Gray
                              ),
-                             modifier = Modifier.weight(1f) // Not focusable for now
+                             modifier = Modifier.weight(1f)
                         )
                         
                         Spacer(modifier = Modifier.width(16.dp))
@@ -308,28 +436,33 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Chips mimicking functionality - In real app, query `exoPlayer.currentTracks`
-                        PlayerOptionChip("Español", selectedLanguage == "Español") { 
-                            selectedLanguage = "Español"
-                            // Logic to switch track would go here:
-                            // exoPlayer.trackSelectionParameters = ...
+                        // Chips
+                        PlayerOptionChip("Audio", isSelected = false) { 
+                            onInteraction()
+                            showAudioDialog = true
                         }
-                        PlayerOptionChip("Inglés [Original]", selectedLanguage.startsWith("Ingl")) { 
-                             selectedLanguage = "Inglés [Original]"
-                        }
-                        PlayerOptionChip("Español (Sub)", selectedLanguage == "Español (Sub)") {
-                             selectedLanguage = "Español (Sub)"
+                        
+                        PlayerOptionChip("Subtítulos", isSelected = false) { 
+                             onInteraction()
+                             showSubtitleDialog = true
                         }
                         
                         Spacer(modifier = Modifier.weight(1f))
                         
                         var isSettingsFocused by remember { mutableStateOf(false) }
-                        IconButton(
-                            onClick = { showQualityDialog = true },
+                        
+                        // Settings Button with explicit click handling box to avoid missing taps
+                        Box(
                             modifier = Modifier
-                                .onFocusChanged { isSettingsFocused = it.isFocused }
                                 .border(2.dp, if (isSettingsFocused) White else Color.Transparent, CircleShape)
+                                .clip(CircleShape)
+                                .clickable {
+                                    onInteraction()
+                                    showQualityDialog = true
+                                }
+                                .onFocusChanged { isSettingsFocused = it.isFocused }
                                 .focusable()
+                                .padding(8.dp)
                         ) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings", tint = White)
                         }
@@ -338,59 +471,146 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
             }
         }
         
-        if (showQualityDialog) {
-             AlertDialog(
-                 containerColor = Color.DarkGray, // Dark theme
-                 onDismissRequest = { showQualityDialog = false },
-                 title = { Text("Calidad de Video", color = White) },
-                 text = {
-                     Column {
-                         listOf("Auto", "1080p", "720p", "480p").forEach { quality ->
-                             var isQualityFocused by remember { mutableStateOf(false) }
-                             Text(
-                                 text = quality,
-                                 color = White,
-                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { 
-                                        // Handle quality change logic here
-                                        showQualityDialog = false 
-                                    }
-                                    .onFocusChanged { isQualityFocused = it.isFocused }
-                                    .background(if (isQualityFocused) Color.White.copy(alpha=0.1f) else Color.Transparent)
-                                    .focusable()
-                                    .padding(vertical = 12.dp, horizontal = 8.dp),
-                                 fontSize = 16.sp
-                             )
-                         }
-                     }
-                 },
-                 confirmButton = {
-                     TextButton(onClick = { showQualityDialog = false }) {
-                         Text("Cerrar", color = NetflixRed)
-                     }
+        if (showAudioDialog) {
+             TrackSelectionDialog(
+                 title = "Audio",
+                 tracks = audioTracks,
+                 onDismiss = { showAudioDialog = false; onInteraction() },
+                 onTrackSelected = { track ->
+                     selectedAudioTrack = track
+                     selectTrack(track, C.TRACK_TYPE_AUDIO)
+                     showAudioDialog = false
+                     onInteraction()
                  }
+             )
+        }
+
+        if (showSubtitleDialog) {
+             TrackSelectionDialog(
+                 title = "Subtítulos",
+                 tracks = subtitleTracks,
+                 onDismiss = { showSubtitleDialog = false; onInteraction() },
+                 onTrackSelected = { track ->
+                     selectedSubtitleTrack = track
+                     selectTrack(track, C.TRACK_TYPE_TEXT)
+                     showSubtitleDialog = false
+                     onInteraction()
+                 },
+                 includeOff = true
+             )
+        }
+        
+        if (showQualityDialog) {
+             TrackSelectionDialog(
+                 title = "Calidad de Video",
+                 tracks = videoTracks,
+                 onDismiss = { showQualityDialog = false; onInteraction() },
+                 onTrackSelected = { track ->
+                      selectTrack(track, C.TRACK_TYPE_VIDEO)
+                      showQualityDialog = false
+                      onInteraction()
+                 },
+                 includeOff = true,
+                 offLabel = "Automático (Recomendado)"
              )
         }
     }
 }
 
+data class TrackInfo(
+    val id: String,
+    val name: String,
+    val group: TrackGroup, 
+    val index: Int
+)
+
 @Composable
-fun PlayerOptionChip(text: String, isSelected: Boolean, onClick: () -> Unit = {}) {
+fun TrackSelectionDialog(
+    title: String, 
+    tracks: List<TrackInfo>, 
+    onDismiss: () -> Unit, 
+    onTrackSelected: (TrackInfo?) -> Unit,
+    includeOff: Boolean = false,
+    offLabel: String = "Desactivado"
+) {
+    AlertDialog(
+         containerColor = Color.DarkGray,
+         onDismissRequest = onDismiss,
+         title = { Text(title, color = White) },
+         text = {
+             Column {
+                 if (includeOff) {
+                     var isFocused by remember { mutableStateOf(false) }
+                     Text(
+                         text = offLabel,
+                         color = White,
+                         modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onTrackSelected(null) }
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .background(if (isFocused) Color.White.copy(alpha=0.1f) else Color.Transparent)
+                            .padding(12.dp)
+                            .focusable()
+                     )
+                 }
+                 
+                 if (tracks.isEmpty()) {
+                      Text("No hay opciones disponibles", color = Color.Gray, modifier = Modifier.padding(12.dp))
+                 }
+                 
+                 tracks.forEach { track ->
+                     var isFocused by remember { mutableStateOf(false) }
+                     Text(
+                         text = track.name,
+                         color = White,
+                         modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onTrackSelected(track) }
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .background(if (isFocused) Color.White.copy(alpha=0.1f) else Color.Transparent)
+                            .focusable()
+                            .padding(12.dp)
+                     )
+                 }
+             }
+         },
+         confirmButton = {
+             TextButton(onClick = onDismiss) {
+                 Text("Cerrar", color = NetflixRed)
+             }
+         }
+     )
+}
+
+@Composable
+fun PlayerOptionChip(text: String, isSelected: Boolean, enabled: Boolean = true, onClick: () -> Unit = {}) {
     var isFocused by remember { mutableStateOf(false) }
+    val backgroundColor = when {
+        isSelected -> White
+        !enabled -> Color.DarkGray.copy(alpha = 0.5f)
+        isFocused -> Color.White.copy(alpha = 0.3f)
+        else -> Color.Transparent
+    }
+    val contentColor = when {
+        isSelected -> Color.Black
+        !enabled -> Color.Gray
+        else -> White
+    }
+    
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(4.dp))
-            .background(if (isSelected) White else if (isFocused) Color.White.copy(alpha = 0.3f) else Color.Transparent)
-            .border(2.dp, if(isFocused) White else Color.Transparent, RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
+            .background(backgroundColor)
+            .border(2.dp, if(isFocused && enabled) White else Color.Transparent, RoundedCornerShape(4.dp))
+            .clickable(enabled = enabled, onClick = onClick)
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
+            .focusable(enabled = enabled)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
-        Text(text, color = if (isSelected) Color.Black else White, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 14.sp)
+        Text(text, color = contentColor, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 14.sp)
     }
 }
+
 
 private fun formatDuration(millis: Long): String {
     val totalSeconds = millis / 1000

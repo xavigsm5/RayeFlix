@@ -41,16 +41,16 @@ import com.rayeflix.app.ui.theme.White
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchScreen() {
+fun SearchScreen(navController: androidx.navigation.NavController, viewModel: com.rayeflix.app.viewmodel.AppViewModel) {
     var query by remember { mutableStateOf("") }
+    val searchResults by viewModel.searchResults.collectAsState()
 
     Row(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
     ) {
-        // Left Side: Keyboard & Categories (Simplified for Mobile/Tablet touch)
-        // Image 4 shows a full keyboard. We can simulate this column.
+        // Left Side: Keyboard & Categories
         Column(
             modifier = Modifier
                 .width(400.dp)
@@ -60,7 +60,10 @@ fun SearchScreen() {
         ) {
              TextField(
                 value = query,
-                onValueChange = { query = it },
+                onValueChange = { 
+                    query = it
+                    viewModel.search(it)
+                },
                 placeholder = { Text("Search...", color = GrayText) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = GrayText) },
                 colors = TextFieldDefaults.textFieldColors(
@@ -78,7 +81,7 @@ fun SearchScreen() {
 
             Spacer(modifier = Modifier.height(16.dp))
             
-            // On screen keyboard grid
+            // On screen keyboard grid (Simulated functionality)
             val keys = listOf(
                 "A", "B", "C", "D", "E", "F",
                 "G", "H", "I", "J", "K", "L",
@@ -102,7 +105,11 @@ fun SearchScreen() {
                             .clip(RoundedCornerShape(4.dp))
                             .background(if (isFocused) Color.LightGray else Color.Transparent)
                             .border(1.dp, if (isFocused) White else Color.Gray.copy(alpha=0.5f), RoundedCornerShape(4.dp))
-                            .clickable { query += key }
+                            .clickable { 
+                                val newQ = query + key 
+                                query = newQ
+                                viewModel.search(newQ)
+                            }
                             .onFocusChanged { isFocused = it.isFocused }
                             .focusable()
                     ) {
@@ -110,7 +117,7 @@ fun SearchScreen() {
                     }
                 }
                 
-                // Space bar / Backspace
+                // Space bar
                 item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
                      var isFocused by remember { mutableStateOf(false) }
                      Box(
@@ -120,13 +127,18 @@ fun SearchScreen() {
                             .clip(RoundedCornerShape(4.dp))
                             .background(if (isFocused) Color.LightGray else Color.Transparent)
                              .border(1.dp, if (isFocused) White else Color.Gray.copy(alpha=0.5f), RoundedCornerShape(4.dp))
-                            .clickable { query += " " }
+                            .clickable { 
+                                val newQ = query + " "
+                                query = newQ
+                                viewModel.search(newQ)
+                            }
                             .onFocusChanged { isFocused = it.isFocused }
                             .focusable()
                      ) { 
                          Text("SPACE", color = if (isFocused) Color.Black else White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                      }
                 }
+                // Backspace
                 item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(3) }) {
                      var isFocused by remember { mutableStateOf(false) }
                      Box(
@@ -136,7 +148,13 @@ fun SearchScreen() {
                             .clip(RoundedCornerShape(4.dp))
                             .background(if (isFocused) Color.LightGray else Color.Transparent)
                              .border(1.dp, if (isFocused) White else Color.Gray.copy(alpha=0.5f), RoundedCornerShape(4.dp))
-                            .clickable { if (query.isNotEmpty()) query = query.dropLast(1) }
+                            .clickable { 
+                                if (query.isNotEmpty()) {
+                                    val newQ = query.dropLast(1)
+                                    query = newQ
+                                    viewModel.search(newQ)
+                                }
+                            }
                             .onFocusChanged { isFocused = it.isFocused }
                             .focusable()
                      ) { 
@@ -144,25 +162,12 @@ fun SearchScreen() {
                      }
                 }
             }
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            // Categories List (Below keyboard)
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                items(listOf("Comedies", "Action", "Sci-Fi")) { category ->
-                    Text(
-                        text = category,
-                        color = GrayText,
-                        modifier = Modifier.clickable { }
-                    )
-                }
-            }
         }
 
         // Right Side: Results Grid
         Column(modifier = Modifier.weight(1f).padding(24.dp)) {
             Text(
-                text = if (query.isEmpty()) "Your Search Recommendations" else "Results for \"$query\"",
+                text = if (query.isEmpty()) "Comience a escribir para buscar..." else "Resultados para \"$query\"",
                 color = White,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
@@ -174,10 +179,7 @@ fun SearchScreen() {
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Filter movies based on query or show all mock
-                val filtered = if (query.isEmpty()) mockMovies else mockMovies.filter { it.title.contains(query, ignoreCase = true) }
-                
-                items(filtered) { movie ->
+                items(searchResults) { movie ->
                     var isFocused by remember { mutableStateOf(false) }
                     Column {
                         AsyncImage(
@@ -191,7 +193,19 @@ fun SearchScreen() {
                                 .onFocusChanged { isFocused = it.isFocused }
                                 .border(3.dp, if (isFocused) White else Color.Transparent, RoundedCornerShape(4.dp))
                                 .focusable()
-                                .clickable { }
+                                .clickable { 
+                                    if(movie.type == com.rayeflix.app.model.ContentType.SERIES) {
+                                         val encodedName = android.net.Uri.encode(movie.seriesName ?: movie.title)
+                                         navController.navigate("series_detail/$encodedName")
+                                    } else if (movie.type == com.rayeflix.app.model.ContentType.LIVE) {
+                                        val encodedUrl = android.net.Uri.encode(movie.streamUrl)
+                                        val encodedTitle = android.net.Uri.encode(movie.title)
+                                        val encodedSubtitle = android.net.Uri.encode("Busqueda")
+                                        navController.navigate("player?url=$encodedUrl&title=$encodedTitle&subtitle=$encodedSubtitle")
+                                    } else {
+                                        navController.navigate("movie_detail/${movie.id}")
+                                    }
+                                }
                         )
                         if (isFocused) {
                             Text(movie.title, color = White, maxLines = 1, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))

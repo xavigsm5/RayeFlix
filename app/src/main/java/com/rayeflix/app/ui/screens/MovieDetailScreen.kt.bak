@@ -1,0 +1,256 @@
+package com.rayeflix.app.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import com.rayeflix.app.ui.theme.DarkBackground
+import com.rayeflix.app.ui.theme.NetflixRed
+import com.rayeflix.app.ui.theme.White
+import com.rayeflix.app.viewmodel.AppViewModel
+import com.rayeflix.app.data.TmdbMetadata
+import com.rayeflix.app.model.Movie
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Info
+
+@Composable
+fun MovieDetailScreen(
+    navController: NavController,
+    viewModel: AppViewModel,
+    movieId: Int
+) {
+    val movie = remember(movieId) { viewModel.getMovieById(movieId) }
+    val tmdbInfo by viewModel.tmdbMetadata.collectAsState()
+    
+    // Trigger fetch on enter
+    LaunchedEffect(movie) {
+        if (movie != null) {
+            viewModel.fetchTmdbMetadata(movie.title, isSeries = false)
+        }
+    }
+    
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.clearTmdbMetadata()
+        }
+    }
+
+    if (movie == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Content not found", color = White)
+            Button(onClick = { navController.popBackStack() }) { Text("Back") }
+        }
+        return
+    }
+
+    // Use TMDB data if available, else M3U data
+    val title = tmdbInfo?.title ?: movie.title
+    val description = tmdbInfo?.description?.ifEmpty { null } ?: movie.description
+    val backdrop = tmdbInfo?.backdropUrl ?: tmdbInfo?.posterUrl ?: movie.imageUrl
+    val rating = tmdbInfo?.rating ?: 0.0
+    val year = tmdbInfo?.releaseDate?.take(4) ?: ""
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+    ) {
+        // Background Image (Full Screen)
+        AsyncImage(
+            model = backdrop,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(0.7f)
+        )
+        
+        // Gradient Overlay (Bottom to Top and Left to Right) to make text readable
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            DarkBackground.copy(alpha = 0.6f),
+                            DarkBackground.copy(alpha = 0.95f),
+                            DarkBackground
+                        ),
+                        startY = 0f,
+                        endY = Float.POSITIVE_INFINITY
+                    )
+                )
+        )
+        Box(
+             modifier = Modifier
+                 .fillMaxSize()
+                 .background(
+                     Brush.horizontalGradient(
+                         colors = listOf(
+                             DarkBackground.copy(alpha = 0.8f),
+                             Color.Transparent
+                         ),
+                         endX = 1200f
+                     )
+                 )
+         )
+
+        // Content Scrollable
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 48.dp, vertical = 24.dp)
+        ) {
+            // Back Icon
+            IconButton(
+                onClick = { navController.popBackStack() },
+                modifier = Modifier.padding(bottom = 24.dp).offset(x = (-12).dp)
+            ) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = White, modifier = Modifier.size(32.dp))
+            }
+
+            Spacer(modifier = Modifier.weight(1f)) // Push content to bottom/center
+
+            // Logo or Title
+            // For now text title, but big and uppercase like "IT CAPITULO DOS"
+            Text(
+                text = title.uppercase(),
+                fontSize = 56.sp,
+                fontWeight = FontWeight.Black,
+                color = White,
+                lineHeight = 60.sp,
+                modifier = Modifier.widthIn(max = 700.dp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Metadata Row: Year | Genre | Duration | HD | 5.1
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (year.isNotEmpty()) {
+                    Text(text = year, color = Color.Gray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(16.dp))
+                }
+                
+                // Genre
+                val genre = tmdbInfo?.genres?.firstOrNull() ?: movie.categories.firstOrNull() ?: "Película"
+                Text(text = genre, color = Color.Gray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.width(16.dp))
+                
+                // Duration matches #EXTINF:3600 -> 1h 0m? 
+                // We don't have duration passed easily on Movie obj except implicit in M3U which we didn't store fully.
+                // Re-using a dummy or if available.
+                Text(text = "2h 15m", color = Color.Gray, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                
+                Spacer(modifier = Modifier.width(16.dp))
+                
+                // Quality Badges
+                Box(modifier = Modifier.border(1.5.dp, Color.Gray, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                    Text(text = "HD", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(modifier = Modifier.border(1.5.dp, Color.Gray, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                    Text(text = "5.1", color = Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Description
+            Text(
+                text = description.takeIf { it.isNotBlank() && it != "Group: ${movie.categories.firstOrNull()}"} ?: "Disfruta de esta increíble película seleccionada especialmente para ti.",
+                color = White,
+                fontSize = 18.sp,
+                lineHeight = 26.sp,
+                modifier = Modifier.widthIn(max = 600.dp),
+                maxLines = 4
+            )
+            
+            // Cast info could go here: "Elenco: Jessica Chastain..."
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Buttons: Play and Functions
+            // Buttons Row
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = { 
+                        val encodedUrl = android.net.Uri.encode(movie.streamUrl)
+                        val encodedTitle = android.net.Uri.encode(movie.title)
+                        val encodedSubtitle = android.net.Uri.encode("Película")
+                        navController.navigate("player?url=$encodedUrl&title=$encodedTitle&subtitle=$encodedSubtitle")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = White),
+                    shape = RoundedCornerShape(4.dp),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Black, modifier = Modifier.size(28.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Ver", color = Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.width(32.dp))
+                
+                // Interaction Icons
+                IconButton(onClick = {}) { Icon(Icons.Default.Add, contentDescription = "My List", tint = White) }
+                Spacer(modifier = Modifier.width(16.dp))
+                IconButton(onClick = {}) { Icon(Icons.Default.ThumbUp, contentDescription = "Like", tint = White) }
+                Spacer(modifier = Modifier.width(16.dp))
+                IconButton(onClick = {}) { Icon(Icons.Default.Info, contentDescription = "Info", tint = White) }
+            }
+            
+            Spacer(modifier = Modifier.height(48.dp))
+            
+            // "Recommended" Section Tabs style
+            Text("Más títulos similares", color = White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // Similar Movies List
+            val similarMovies = remember(movie) { viewModel.getSimilarMovies(movie) }
+             
+            if (similarMovies.isNotEmpty()) {
+                LazyRow(
+                     contentPadding = PaddingValues(bottom = 24.dp),
+                     horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(similarMovies) { item ->
+                        SimilarMovieItem(item) {
+                             if (item.type == com.rayeflix.app.model.ContentType.SERIES) {
+                                // Navigate to series detail? Or just generic handling
+                                // For now similar logic mostly returns MOVIES from AppViewModel
+                                navController.navigate("movie_detail/${item.id}")
+                             } else {
+                                navController.navigate("movie_detail/${item.id}")
+                             }
+                        }
+                    }
+                }
+            } else {
+                Text("No hay títulos similares disponibles", color = Color.Gray)
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}

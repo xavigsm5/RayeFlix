@@ -6,9 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.focus.onFocusChanged
@@ -25,6 +27,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import coil.compose.AsyncImage
 import com.rayeflix.app.model.Profile
 import com.rayeflix.app.ui.theme.DarkBackground
@@ -40,6 +47,9 @@ fun ProfileSelectionScreen(
     val profiles by viewModel.profiles.collectAsState()
     var selectedProfileId by remember { mutableStateOf(profiles.firstOrNull()?.id ?: 1) }
     var showAddProfileDialog by remember { mutableStateOf(false) }
+    
+    // Edit state
+    var editingProfile by remember { mutableStateOf<Profile?>(null) }
 
     // Find the currently "hovered/selected" profile to show its background
     val activeProfile = profiles.find { it.id == selectedProfileId }
@@ -47,7 +57,6 @@ fun ProfileSelectionScreen(
     Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
         // Background Image (Dynamic based on selected profile)
         activeProfile?.let { profile ->
-                // Use Netflix-like background pattern or collage
             AsyncImage(
                 model = "https://assets.nflxext.com/ffe/siteui/vlv3/f841d4c7-10e1-40af-bcae-07a3f8dc141a/f6d7434e-d6de-4185-a6d4-c77a2d08737b/US-en-20220502-popsignuptwoweeks-perspective_alpha_website_small.jpg",
                 contentDescription = null,
@@ -55,15 +64,14 @@ fun ProfileSelectionScreen(
                 modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.5f }
             )
             
-            // Gradient Overlay
-            Box(
+             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.horizontalGradient(
                             colors = listOf(Color.Black, Color.Transparent),
                             startX = 0f,
-                            endX = 1500f // Extended gradient
+                            endX = 1500f 
                         )
                     )
             )
@@ -76,13 +84,13 @@ fun ProfileSelectionScreen(
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(350.dp) // Wider sidebar
-                    .background(Color.Transparent) // Remove the scrim box
+                    .width(420.dp) // Wider sidebar for edit layout
+                    .background(Color.Transparent) 
                     .padding(start = 60.dp, top = 60.dp, bottom = 60.dp, end = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                 // ... Logo and Title ...
+                // Header Text
                 Text(
                     text = "RayeFlix",
                     color = NetflixRed,
@@ -98,7 +106,7 @@ fun ProfileSelectionScreen(
                 )
 
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     items(profiles) { profile ->
@@ -118,24 +126,39 @@ fun ProfileSelectionScreen(
                                     selectedProfileId = profile.id
                                     onProfileClick(profile) 
                                 },
-                                onHover = { selectedProfileId = profile.id }
+                                onHover = { selectedProfileId = profile.id },
+                                onEditClick = { editingProfile = profile }
                             )
                         }
                     }
                 }
             }
             
-            // Right side area
-             Box(modifier = Modifier.weight(1f))
+            Box(modifier = Modifier.weight(1f))
         }
     }
-    // ... Dialog ...
+    
     if (showAddProfileDialog) {
         AddProfileDialog(
             onDismiss = { showAddProfileDialog = false },
             onAdd = { name, url ->
                 viewModel.addProfile(name, url)
                 showAddProfileDialog = false
+            }
+        )
+    }
+    
+    if (editingProfile != null) {
+        EditProfileDialog(
+            profile = editingProfile!!,
+            onDismiss = { editingProfile = null },
+            onSave = { id, name, url ->
+                viewModel.updateProfile(id, name, url)
+                editingProfile = null
+            },
+            onDelete = { id ->
+                viewModel.deleteProfile(id)
+                editingProfile = null
             }
         )
     }
@@ -146,58 +169,81 @@ fun ProfileSidebarItem(
     profile: Profile, 
     isSelected: Boolean, 
     onClick: () -> Unit,
-    onHover: () -> Unit
+    onHover: () -> Unit,
+    onEditClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    var isEditFocused by remember { mutableStateOf(false) }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .onFocusChanged { 
-                isFocused = it.isFocused 
-                if (isFocused) onHover()
-            }
-            .clickable(
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = null 
-            ) { 
-                onHover()
-                onClick() 
-            }
-            .focusable() // Critical: This makes the Row capable of taking D-Pad focus
-            .padding(vertical = 8.dp) // Spacing
+            .padding(vertical = 4.dp)
     ) {
-        // Avatar
-        Box(
+        // Main Profile Click Area
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .size(70.dp)
-                // Border drawn around the box
-                .border(
-                    width = if (isFocused) 4.dp else 0.dp,
-                    color = if (isFocused) White else Color.Transparent,
-                    shape = RoundedCornerShape(4.dp)
-                )
-                .padding(2.dp) // Space between border and image
-                .clip(RoundedCornerShape(4.dp))
+                .weight(1f)
+                .onFocusChanged { 
+                    isFocused = it.isFocused 
+                    if (isFocused) onHover()
+                }
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null 
+                ) { 
+                    onHover()
+                    onClick() 
+                }
+                .focusable()
         ) {
-            AsyncImage(
-                model = profile.avatarUrl,
-                contentDescription = profile.name,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+            // Avatar
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .border(
+                        width = if (isFocused) 3.dp else 0.dp,
+                        color = if (isFocused) White else Color.Transparent,
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                    .padding(2.dp) 
+                    .clip(RoundedCornerShape(4.dp))
+            ) {
+                AsyncImage(
+                    model = profile.avatarUrl,
+                    contentDescription = profile.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            Text(
+                text = profile.name,
+                color = if (isFocused) White else Color.Gray,
+                fontSize = if (isFocused) 22.sp else 18.sp,
+                fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier.weight(1f).animateContentSize()
             )
         }
-        
-        Spacer(modifier = Modifier.width(20.dp))
-        
-        Text(
-            text = profile.name,
-            color = if (isFocused) White else Color.Gray,
-            fontSize = if (isFocused) 26.sp else 22.sp,
-            fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Normal,
-            modifier = Modifier.animateContentSize()
-        )
+
+        // Edit Button (Focusable separately via Right Key)
+        IconButton(
+            onClick = { onEditClick() },
+            modifier = Modifier
+                .onFocusChanged { isEditFocused = it.isFocused }
+                .border(2.dp, if (isEditFocused) White else Color.Transparent, CircleShape)
+                .focusable()
+        ) {
+            Icon(
+                Icons.Default.Edit, 
+                contentDescription = "Edit", 
+                tint = if(isEditFocused) White else Color.Gray
+            )
+        }
     }
 }
 
@@ -211,13 +257,13 @@ fun AddProfileButton(isSelected: Boolean, onClick: () -> Unit) {
             .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
             .focusable()
-            .padding(vertical = 8.dp)
+            .padding(vertical = 4.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(70.dp)
+                .size(60.dp)
                 .border(
-                    width = if (isFocused) 4.dp else 1.dp,
+                    width = if (isFocused) 3.dp else 1.dp,
                     color = if (isFocused) White else Color.Gray,
                     shape = RoundedCornerShape(4.dp)
                 )
@@ -227,6 +273,93 @@ fun AddProfileButton(isSelected: Boolean, onClick: () -> Unit) {
         ) {
              Icon(Icons.Default.Add, contentDescription = "Add", tint = White, modifier = Modifier.size(32.dp))
         }
+        
+        Spacer(modifier = Modifier.width(16.dp))
+         Text(
+            text = "Agregar Perfil",
+            color = if (isFocused) White else Color.Gray,
+            fontSize = if (isFocused) 22.sp else 18.sp,
+            fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditProfileDialog(profile: Profile, onDismiss: () -> Unit, onSave: (Int, String, String) -> Unit, onDelete: (Int) -> Unit) {
+    var name by remember { mutableStateOf(profile.name) }
+    var url by remember { mutableStateOf(profile.playlistUrl) }
+    val focusRequester = remember { FocusRequester() }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF141414)),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text("Editar Perfil", fontSize = 20.sp, color = White, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nombre") },
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = NetflixRed,
+                        unfocusedBorderColor = Color.Gray,
+                        focusedTextColor = White,
+                        unfocusedTextColor = White,
+                        cursorColor = White
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusRequester.requestFocus() } 
+                    )
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("URL Lista IPTV") },
+                     colors = TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = NetflixRed,
+                        unfocusedBorderColor = Color.Gray,
+                        focusedTextColor = White,
+                        unfocusedTextColor = White,
+                        cursorColor = White
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(
+                        onDone = { onSave(profile.id, name, url) }
+                    )
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    
+                    TextButton(onClick = { onDelete(profile.id) }) {
+                        Text("Eliminar", color = Color.Red)
+                    }
+
+                    Row {
+                         TextButton(onClick = onDismiss) {
+                            Text("Cancelar", color = Color.Gray)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = { onSave(profile.id, name, url) },
+                            colors = ButtonDefaults.buttonColors(containerColor = NetflixRed)
+                        ) {
+                            Text("Guardar", color = White)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -235,6 +368,7 @@ fun AddProfileButton(isSelected: Boolean, onClick: () -> Unit) {
 fun AddProfileDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -256,7 +390,11 @@ fun AddProfileDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
                         unfocusedTextColor = White,
                         cursorColor = White
                     ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusRequester.requestFocus() } 
+                    )
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
@@ -270,7 +408,13 @@ fun AddProfileDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
                         unfocusedTextColor = White,
                         cursorColor = White
                     ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(
+                        onDone = { onAdd(name, url) }
+                    )
                 )
                 Spacer(modifier = Modifier.height(24.dp))
                 
@@ -290,6 +434,3 @@ fun AddProfileDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
         }
     }
 }
-
-// Extension for alpha since modifier.alpha needs import
-// End of file

@@ -10,26 +10,32 @@ data class Profile(
 val profiles = listOf(
     Profile(
         1, 
-        "Javier", 
+        "Lista 1", 
         "https://upload.wikimedia.org/wikipedia/commons/0/0b/Netflix-avatar.png", 
-        "http://tvpromas.com:2082/get.php?username=Pavelreyes&password=vG99cvskSrzN&type=m3u_plus"
+        "http://tv.zapping.life:8080/get.php?username=gomezyony1&password=8ccc8e1bf35d&type=m3u_plus"
     ),
     Profile(
         2, 
-        "Kids", 
+        "Lista 2", 
         "https://mir-s3-cdn-cf.behance.net/project_modules/disp/84c20033850498.56ba69ac290ea.png", 
-        "http://kstv.us:8080/get.php?username=jTgf2f6Sfj&password=4314648140&type=m3u_plus"
+        "http://stklatino.dynns.com:2082/get.php?username=56923830688w&password=170525act&type=m3u_plus"
     ),
     Profile(
         3, 
-        "Guest", 
+        "Lista 3", 
         "https://mir-s3-cdn-cf.behance.net/project_modules/disp/bb3a8833850498.56ba69ac33f26.png", 
-        "http://tvpromas.com:2082/get.php?username=Pavelreyes&password=vG99cvskSrzN&type=m3u_plus" // Reusing for guest
+        "http://matrivagoweb.xyz:2095/get.php?username=hsandoval758&password=123456&type=m3u_plus"
     ),
     Profile(
-        4,
-        "Add Profile",
-        "https://assets.nflxext.com/ffe/siteui/vlv3/f841d4c7-10e1-40af-bcae-07a3f8dc141a/f6d7434e-d6de-4185-a6d4-c77a2d08737b/US-en-20220502-popsignuptwoweeks-perspective_alpha_website_small.jpg",
-        "" // Placeholder
+        4, 
+        "Lista 4", 
+        "https://mir-s3-cdn-cf.behance.net/project_modules/disp/64623a33850498.56ba69ac2a6f7.png", 
+        "http://mgoplus.org:2086/get.php?username=fermin.ruedavalle2508&password=12345678.&type=m3u_plus"
+    ),
+    Profile(
+        5, 
+        "Lista 5", 
+        "https://mir-s3-cdn-cf.behance.net/project_modules/disp/bf6e4a33850498.56ba69ac3064f.png", 
+        "http://alfatv.lat:2082/get.php?username=Nvouser11&password=6aNLSuAvfJAR&type=m3u_plus"
     )
 )

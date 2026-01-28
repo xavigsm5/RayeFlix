@@ -23,11 +23,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument // Import needed
+import androidx.navigation.navArgument 
 import com.rayeflix.app.ui.screens.HomeScreen
 import com.rayeflix.app.ui.screens.SearchScreen
 import com.rayeflix.app.ui.screens.ProfileSelectionScreen
 import com.rayeflix.app.ui.screens.PlayerScreen
+import com.rayeflix.app.ui.screens.SeriesDetailScreen
+import com.rayeflix.app.ui.screens.MovieDetailScreen
 import com.rayeflix.app.ui.theme.DarkSurface
 import com.rayeflix.app.ui.theme.NetflixRed
 import com.rayeflix.app.ui.theme.White
@@ -71,7 +73,7 @@ fun RayeFlixApp() {
             composable(Screen.Home.route) { 
                 HomeScreen(navController, viewModel) 
             }
-            composable(Screen.Search.route) { SearchScreen() }
+            composable(Screen.Search.route) { SearchScreen(navController, viewModel) }
             composable(Screen.MyNetflix.route) { Text("My Netflix", color = White) }
             composable(
                 route = "player?url={url}&title={title}&subtitle={subtitle}",
@@ -85,6 +87,22 @@ fun RayeFlixApp() {
                 val title = backStackEntry.arguments?.getString("title") ?: ""
                 val subtitle = backStackEntry.arguments?.getString("subtitle") ?: ""
                 PlayerScreen(url, title, subtitle, navController)
+            }
+            composable(
+                route = "series_detail/{seriesName}",
+                arguments = listOf(
+                    navArgument("seriesName") { defaultValue = "" }
+                )
+            ) { backStackEntry ->
+                val seriesName = backStackEntry.arguments?.getString("seriesName") ?: ""
+                SeriesDetailScreen(navController, viewModel, seriesName)
+            }
+            composable(
+                route = "movie_detail/{movieId}",
+                arguments = listOf(navArgument("movieId") { type = androidx.navigation.NavType.IntType })
+            ) { backStackEntry ->
+                val movieId = backStackEntry.arguments?.getInt("movieId") ?: 0
+                MovieDetailScreen(navController, viewModel, movieId)
             }
         }
     }
