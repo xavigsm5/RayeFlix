@@ -267,7 +267,7 @@ fun SimilarMovieItem(movie: Movie, onClick: () -> Unit) {
 
     Column(
         modifier = Modifier
-            .width(140.dp)
+            .width(150.dp)
             .padding(4.dp)
             .clickable { onClick() }
             .onFocusChanged { isFocused = it.isFocused }
@@ -276,9 +276,13 @@ fun SimilarMovieItem(movie: Movie, onClick: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(200.dp)
+                .height(220.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .border(2.dp, if (isFocused) White else Color.Transparent, RoundedCornerShape(8.dp))
+                .border(
+                    width = if (isFocused) 4.dp else 0.dp, 
+                    color = if (isFocused) White else Color.Transparent, 
+                    shape = RoundedCornerShape(8.dp)
+                )
                 .background(Color.DarkGray)
         ) {
             AsyncImage(

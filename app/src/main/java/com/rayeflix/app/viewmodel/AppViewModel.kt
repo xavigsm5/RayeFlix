@@ -141,6 +141,8 @@ class AppViewModel : ViewModel() {
 
     private fun updateDisplayedContent() {
         val tab = _currentTab.value
+        val maxItemsPerCategory = 20 // Limit to prevent ANR from too many images
+        
         _displayedContent.value = when (tab) {
             "Series" -> {
                 // Group Series by Category
@@ -148,13 +150,13 @@ class AppViewModel : ViewModel() {
                 val displayMap = mutableMapOf<String, List<Movie>>()
                 
                 grouped.forEach { (category, seriesList) ->
-                    displayMap[category] = seriesList.map { series ->
+                    displayMap[category] = seriesList.take(maxItemsPerCategory).map { series ->
                         Movie(
-                            id = series.name.hashCode(), // Use hashcode for a unique ID
+                            id = series.name.hashCode(),
                             title = series.name,
                             imageUrl = series.coverUrl.ifEmpty { "https://via.placeholder.com/300x450?text=${series.name}" },
                             description = "Series with ${series.episodes.size} Seasons",
-                            streamUrl = "series://${series.name}", // Special URL scheme for click handling
+                            streamUrl = "series://${series.name}",
                             categories = listOf(category),
                             type = com.rayeflix.app.model.ContentType.SERIES,
                             seriesName = series.name
@@ -165,16 +167,22 @@ class AppViewModel : ViewModel() {
             }
             "TV en vivo" -> {
                 allLive.groupBy { it.categories.firstOrNull() ?: "Canales" }
+                    .mapValues { it.value.take(maxItemsPerCategory) }
             }
             "Películas" -> {
-                 // Only show true movies, grouped by category
-                 allMovies.groupBy { it.categories.firstOrNull() ?: "Películas" }
+                allMovies.groupBy { it.categories.firstOrNull() ?: "Películas" }
+                    .mapValues { it.value.take(maxItemsPerCategory) }
+            }
+            "TV Vivo" -> {
+                // Show all live TV channels
+                allLive.groupBy { it.categories.firstOrNull() ?: "Canales" }
+                    .mapValues { it.value.take(maxItemsPerCategory) }
             }
             else -> {
-                // Home: Mix of everything or just simplified view
-                // For now, let's show Movies + Live combined, grouped by category
-                val allContent = allMovies + allLive
+                // Home: Mix of everything - limited
+                val allContent = allMovies.take(100) + allLive.take(50)
                 allContent.groupBy { it.categories.firstOrNull() ?: "Otros" }
+                    .mapValues { it.value.take(maxItemsPerCategory) }
             }
         }
     }

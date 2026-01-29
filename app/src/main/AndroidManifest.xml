@@ -5,8 +5,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
+        android:name=".RayeFlixApplication"
         android:usesCleartextTraffic="true"
         android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@drawable/logo"
         android:label="@string/app_name"
         android:banner="@drawable/logo"

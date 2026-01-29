@@ -28,14 +28,14 @@ private val DarkColorScheme = darkColorScheme(
     onSurface = White,
 )
 
-// We force dark theme because Netflix is dark.
+
 private val LightColorScheme = DarkColorScheme
 
 @Composable
 fun RayeFlixTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = false, // Disable dynamic color to enforce Netflix branding
+    
+    dynamicColor: Boolean = false, 
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

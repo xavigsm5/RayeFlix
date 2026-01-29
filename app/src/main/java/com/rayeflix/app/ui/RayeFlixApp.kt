@@ -45,14 +45,13 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 @Composable
 fun RayeFlixApp() {
     val navController = rememberNavController()
-    // In a real app, use Hilt or a Factory. Here we instantiate for simplicity.
     val viewModel: AppViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     
     val items = listOf(Screen.Home, Screen.Search, Screen.MyNetflix)
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // Scaffold with no bottom bar
+    
     Scaffold { innerPadding ->
         NavHost(
             navController = navController,

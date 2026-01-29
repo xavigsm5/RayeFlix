@@ -64,9 +64,8 @@ dependencies {
     // Image Loading - Coil
     implementation("io.coil-kt:coil-compose:2.5.0")
     
-    // Video Player - Media3
-    implementation("androidx.media3:media3-exoplayer:1.2.0")
-    implementation("androidx.media3:media3-ui:1.2.0")
+    // Video Player - LibVLC
+    implementation("org.videolan.android:libvlc-all:3.6.0")
 
     // Networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

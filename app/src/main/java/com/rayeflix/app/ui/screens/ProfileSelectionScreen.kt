@@ -109,27 +109,28 @@ fun ProfileSelectionScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(profiles) { profile ->
-                        if (profile.name == "Add Profile") {
-                            AddProfileButton(
-                                isSelected = profile.id == selectedProfileId,
-                                onClick = { 
-                                    selectedProfileId = profile.id 
-                                    showAddProfileDialog = true
-                                }
-                            )
-                        } else {
-                            ProfileSidebarItem(
-                                profile = profile,
-                                isSelected = profile.id == selectedProfileId,
-                                onClick = { 
-                                    selectedProfileId = profile.id
-                                    onProfileClick(profile) 
-                                },
-                                onHover = { selectedProfileId = profile.id },
-                                onEditClick = { editingProfile = profile }
-                            )
-                        }
+                    // Show all actual profiles (filter out any "Add Profile" dummy entries)
+                    val realProfiles = profiles.filter { it.name != "Add Profile" }
+                    
+                    items(realProfiles) { profile ->
+                        ProfileSidebarItem(
+                            profile = profile,
+                            isSelected = profile.id == selectedProfileId,
+                            onClick = { 
+                                selectedProfileId = profile.id
+                                onProfileClick(profile) 
+                            },
+                            onHover = { selectedProfileId = profile.id },
+                            onEditClick = { editingProfile = profile }
+                        )
+                    }
+                    
+                    // Always show Add Profile button at the end
+                    item {
+                        AddProfileButton(
+                            isSelected = false,
+                            onClick = { showAddProfileDialog = true }
+                        )
                     }
                 }
             }

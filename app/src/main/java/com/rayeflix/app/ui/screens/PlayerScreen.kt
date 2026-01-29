@@ -1,23 +1,19 @@
 package com.rayeflix.app.ui.screens
 
 import android.net.Uri
-import android.text.format.DateUtils
+import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.border
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,43 +23,31 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import com.rayeflix.app.ui.theme.NetflixRed
 import com.rayeflix.app.ui.theme.White
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.videolan.libvlc.LibVLC
+import org.videolan.libvlc.Media
+import org.videolan.libvlc.MediaPlayer
+import org.videolan.libvlc.util.VLCVideoLayout
 
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.key
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import android.util.Log
-import androidx.media3.common.C
-import androidx.media3.common.Tracks
-import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.common.TrackGroup
-import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.upstream.DefaultAllocator
-import androidx.media3.common.Format
-
-@OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navController: androidx.navigation.NavController) {
     val context = LocalContext.current
@@ -71,156 +55,120 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
     var currentPosition by remember { mutableStateOf(0L) }
     var totalDuration by remember { mutableStateOf(0L) }
     var showControls by remember { mutableStateOf(true) }
-    
+
     // Inactivity Timer State
     var lastInteractionTime by remember { mutableStateOf(System.currentTimeMillis()) }
-    
+
     // Focus Requester for TV Navigation
     val playButtonFocusRequester = remember { FocusRequester() }
-    
+
     // Decode arguments
-    val decodedUrl = remember(videoUrl) { android.net.Uri.decode(videoUrl) }
-    val title = remember(titleArg) { android.net.Uri.decode(titleArg) }
-    val subtitle = remember(subtitleArg) { android.net.Uri.decode(subtitleArg) }
-    
+    val decodedUrl = remember(videoUrl) { Uri.decode(videoUrl) }
+    val title = remember(titleArg) { Uri.decode(titleArg) }
+    val subtitle = remember(subtitleArg) { Uri.decode(subtitleArg) }
+
     // Quality / Track Selection States
-    var showQualityDialog by remember { mutableStateOf(false) }
+    var showQualityDialog by remember { mutableStateOf(false) } // Video track selection? LibVLC usually exposes this as tracks too
     var showAudioDialog by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
-    
+
     var audioTracks by remember { mutableStateOf<List<TrackInfo>>(emptyList()) }
     var subtitleTracks by remember { mutableStateOf<List<TrackInfo>>(emptyList()) }
     var videoTracks by remember { mutableStateOf<List<TrackInfo>>(emptyList()) }
-    
+
     var selectedAudioTrack by remember { mutableStateOf<TrackInfo?>(null) }
     var selectedSubtitleTrack by remember { mutableStateOf<TrackInfo?>(null) }
+
+    // LibVLC Initialization
+    val libVLC = remember {
+        val options = ArrayList<String>()
+        // Optimize for protocol handling
+        
+        LibVLC(context, options)
+    }
+
+    val mediaPlayer = remember(libVLC) { MediaPlayer(libVLC) }
+
+    // Prepare Media
+    LaunchedEffect(decodedUrl) {
+        try {
+            Log.d("PlayerScreen", "Playing URL: $decodedUrl")
+            val media = Media(libVLC, Uri.parse(decodedUrl))
+            
+            // NOTE: Removing explicit User-Agent to test default VLC behavior.
+            // Sometimes incorrect spoofing triggers more blocks than just being standard VLC.
+            
+            // Resilience options
+            media.addOption(":http-reconnect")
+            media.addOption(":network-caching=10000")
+            
+            // Enable hardware decoding, but allow fallback to software (force = false)
+            media.setHWDecoderEnabled(true, false)
+            mediaPlayer.media = media
+            media.release() // MediaPlayer keeps a reference
+            mediaPlayer.play()
+        } catch (e: Exception) {
+            Log.e("PlayerScreen", "Error loading media", e)
+        }
+    }
+
+    // Event Listener
+    DisposableEffect(mediaPlayer) {
+        val listener = object : MediaPlayer.EventListener {
+            override fun onEvent(event: MediaPlayer.Event) {
+                when (event.type) {
+                    MediaPlayer.Event.TimeChanged -> {
+                        currentPosition = event.timeChanged
+                    }
+                    MediaPlayer.Event.LengthChanged -> {
+                        totalDuration = event.lengthChanged
+                    }
+                    MediaPlayer.Event.Playing -> {
+                        isPlaying = true
+                        if (totalDuration == 0L) totalDuration = mediaPlayer.length
+                        
+                        // Update tracks when playing starts
+                        val audio = mediaPlayer.audioTracks
+                        if (audio != null) {
+                            audioTracks = audio.mapNotNull { if (it.id == -1) null else TrackInfo(it.id, it.name) }
+                        }
+                        
+                        val spu = mediaPlayer.spuTracks
+                        if (spu != null) {
+                             subtitleTracks = spu.mapNotNull { if (it.id == -1) null else TrackInfo(it.id, it.name) }
+                        }
+
+                        // Video tracks less common to switch in VLC android interface but available
+                        val vid = mediaPlayer.videoTracks
+                        if (vid != null) {
+                             videoTracks = vid.mapNotNull { if (it.id == -1) null else TrackInfo(it.id, it.name) }
+                        }
+                    }
+                    MediaPlayer.Event.Paused -> {
+                        isPlaying = false
+                    }
+                    MediaPlayer.Event.EndReached -> {
+                        isPlaying = false
+                    }
+                    MediaPlayer.Event.EncounteredError -> {
+                        Log.e("PlayerScreen", "VLC Error")
+                    }
+                }
+            }
+        }
+        mediaPlayer.setEventListener(listener)
+
+        onDispose {
+            mediaPlayer.stop()
+            mediaPlayer.release()
+            libVLC.release()
+        }
+    }
     
     // Helper to register interaction
     fun onInteraction() {
         lastInteractionTime = System.currentTimeMillis()
         if (!showControls) showControls = true
-    }
-
-    val exoPlayer = remember {
-        val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(userAgent)
-            .setAllowCrossProtocolRedirects(true)
-        
-        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-        
-        // Custom LoadControl for better buffering (4K support)
-        val loadControl = DefaultLoadControl.Builder()
-            .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
-            .setBufferDurationsMs(
-                15_000, // Min buffer 15s
-                50_000, // Max buffer 50s
-                5000, // Buffer for playback (start after 5s)
-                10_000  // Buffer for rebuffer (adjust to 10s)
-            )
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
-            
-        val renderersFactory = DefaultRenderersFactory(context)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-
-        ExoPlayer.Builder(context, renderersFactory)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
-            .setLoadControl(loadControl)
-            .setAudioAttributes(
-                androidx.media3.common.AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                true
-            )
-            .build()
-            .apply {
-                setMediaItem(MediaItem.fromUri(decodedUrl))
-                prepare()
-                playWhenReady = true
-                addListener(object : Player.Listener {
-                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                        Log.e("PlayerScreen", "ExoPlayer Error: ${error.message}", error)
-                    }
-
-                    // ...
-                    // Ensure the listener is kept clean, we just replace the block start
-                    override fun onTracksChanged(tracks: Tracks) {
-                        val newAudio = mutableListOf<TrackInfo>()
-                        val newSubtitle = mutableListOf<TrackInfo>()
-                        val newVideo = mutableListOf<TrackInfo>()
-                        
-                        for (group in tracks.groups) {
-                            for (i in 0 until group.length) {
-                                val format = group.getTrackFormat(i)
-                                val isSelected = group.isSelected
-                                val trackName = when(group.type) {
-                                    C.TRACK_TYPE_AUDIO -> "${format.language ?: "Unknown"} ${format.label ?: ""}".trim()
-                                    C.TRACK_TYPE_TEXT -> "${format.language ?: "Unknown"} ${format.label ?: ""}".trim()
-                                    C.TRACK_TYPE_VIDEO -> {
-                                        if (format.height != Format.NO_VALUE) "${format.height}p" else "Auto / Unknown"
-                                    } 
-                                    else -> ""
-                                }
-                                
-                                val trackId = format.id ?: "$i"
-                                val info = TrackInfo(trackId, trackName.ifEmpty { "Track ${i+1}" }, group.mediaTrackGroup, i)
-                                
-                                when(group.type) {
-                                    C.TRACK_TYPE_AUDIO -> {
-                                        newAudio.add(info)
-                                        if (isSelected) selectedAudioTrack = info
-                                    }
-                                    C.TRACK_TYPE_TEXT -> {
-                                        newSubtitle.add(info)
-                                        if (isSelected) selectedSubtitleTrack = info
-                                    }
-                                    C.TRACK_TYPE_VIDEO -> {
-                                        // Filter duplicates or unhelpful labels
-                                        if (newVideo.none { it.name == info.name } && info.name.contains("p")) {
-                                            newVideo.add(info)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        audioTracks = newAudio
-                        subtitleTracks = newSubtitle
-                        videoTracks = newVideo.sortedByDescending { it.name.replace("p","").toIntOrNull() ?: 0 }
-                    }
-                })
-            }
-    }
-    
-    // Track Selection Helper
-    fun selectTrack(track: TrackInfo?, type: Int) {
-        val parametersBuilder = exoPlayer.trackSelectionParameters.buildUpon()
-        if (track == null) {
-            parametersBuilder.clearOverridesOfType(type)
-            if (type == C.TRACK_TYPE_TEXT) {
-                 parametersBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-            }
-        } else {
-             parametersBuilder.setTrackTypeDisabled(type, false)
-             // Correctly passing TrackGroup and index
-             parametersBuilder.setOverrideForType(TrackSelectionOverride(track.group, track.index))
-        }
-        exoPlayer.trackSelectionParameters = parametersBuilder.build()
-    }
-
-    // Update progress
-    LaunchedEffect(exoPlayer) {
-        while (true) {
-            try {
-                currentPosition = exoPlayer.currentPosition
-                totalDuration = exoPlayer.duration.coerceAtLeast(0L)
-                isPlaying = exoPlayer.isPlaying
-            } catch (e: Exception) {
-                break
-            }
-            delay(1000)
-        }
     }
 
     // Auto hide controls logic
@@ -238,16 +186,6 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                 delay(100) 
                 playButtonFocusRequester.requestFocus()
             } catch (e: Exception) { e.printStackTrace() }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-             exoPlayer.stop()
-             exoPlayer.clearMediaItems()
-             android.os.Handler(android.os.Looper.getMainLooper()).post {
-                 try { exoPlayer.release() } catch (e: Exception) { e.printStackTrace() }
-             }
         }
     }
 
@@ -273,22 +211,15 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
             }
             .focusable() 
     ) {
+        // Video Surface
         AndroidView(
-            factory = {
-                PlayerView(context).apply {
-                    player = exoPlayer
-                    useController = false 
-                    // Use TextureView to avoid SurfaceView overlay issues on some emulators/devices causing generic errors
-                    // However, PlayerView doesn't have a simple setter for specific surface type at runtime easily without XML. 
-                    // But we can try to set it via layout params or assume default.
-                    // A common fix for "unrecoverably broken" is enabling TextureView.
-                    // But we cant easily set it here without XML layout inflation.
-                    // Let keep it simple but ensure keepScreenOn is true.
-                    keepScreenOn = true
+            factory = { ctx ->
+                VLCVideoLayout(ctx).apply {
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
+                    mediaPlayer.attachViews(this, null, false, false)
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -331,7 +262,8 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                             IconButton(
                                 onClick = { 
                                     onInteraction()
-                                    exoPlayer.seekBack() 
+                                    val newTime = (currentPosition - 10000).coerceAtLeast(0)
+                                    mediaPlayer.time = newTime
                                 },
                                 modifier = Modifier
                                     .onFocusChanged { isReplayFocused = it.isFocused }
@@ -345,7 +277,8 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                             IconButton(
                                 onClick = { 
                                     onInteraction()
-                                    exoPlayer.seekForward() 
+                                    val newTime = (currentPosition + 10000).coerceAtMost(totalDuration)
+                                    mediaPlayer.time = newTime
                                 },
                                 modifier = Modifier
                                     .onFocusChanged { isSkipFocused = it.isFocused }
@@ -391,8 +324,7 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                                     indication = androidx.compose.material.ripple.rememberRipple(bounded = true, color = Color.Red)
                                     ) {
                                     onInteraction()
-                                    if (isPlaying) exoPlayer.pause() else exoPlayer.play()
-                                    isPlaying = !isPlaying
+                                    if (isPlaying) mediaPlayer.pause() else mediaPlayer.play()
                                 }
                                 .focusRequester(playButtonFocusRequester) // Attach FocusRequester
                                 .focusable(interactionSource = interactionSource), 
@@ -414,7 +346,13 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                         
                         Slider(
                              value = currentPosition.toFloat(),
-                             onValueChange = {}, // Read-only for now or add seek logic
+                             onValueChange = { 
+                                // Seek logic
+                                val newTime = it.toLong()
+                                mediaPlayer.time = newTime
+                                currentPosition = newTime
+                                onInteraction()
+                             }, 
                              valueRange = 0f..totalDuration.toFloat().coerceAtLeast(1f),
                              colors = SliderDefaults.colors(
                                  thumbColor = NetflixRed,
@@ -439,11 +377,20 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                         // Chips
                         PlayerOptionChip("Audio", isSelected = false) { 
                             onInteraction()
+                            // Refresh tracks in case they loaded late
+                             val audio = mediaPlayer.audioTracks
+                            if (audio != null) {
+                                audioTracks = audio.mapNotNull { if (it.id == -1) null else TrackInfo(it.id, it.name) }
+                            }
                             showAudioDialog = true
                         }
                         
                         PlayerOptionChip("Subtítulos", isSelected = false) { 
                              onInteraction()
+                             val spu = mediaPlayer.spuTracks
+                            if (spu != null) {
+                                 subtitleTracks = spu.mapNotNull { if (it.id == -1) null else TrackInfo(it.id, it.name) }
+                            }
                              showSubtitleDialog = true
                         }
                         
@@ -477,8 +424,14 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                  tracks = audioTracks,
                  onDismiss = { showAudioDialog = false; onInteraction() },
                  onTrackSelected = { track ->
+                     // Remember playing state before track change
+                     val wasPlaying = mediaPlayer.isPlaying
                      selectedAudioTrack = track
-                     selectTrack(track, C.TRACK_TYPE_AUDIO)
+                     if (track != null) mediaPlayer.setAudioTrack(track.id)
+                     // Restore playing state if was playing
+                     if (wasPlaying && !mediaPlayer.isPlaying) {
+                         mediaPlayer.play()
+                     }
                      showAudioDialog = false
                      onInteraction()
                  }
@@ -491,8 +444,14 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                  tracks = subtitleTracks,
                  onDismiss = { showSubtitleDialog = false; onInteraction() },
                  onTrackSelected = { track ->
+                     // Remember playing state before track change
+                     val wasPlaying = mediaPlayer.isPlaying
                      selectedSubtitleTrack = track
-                     selectTrack(track, C.TRACK_TYPE_TEXT)
+                     if (track != null) mediaPlayer.setSpuTrack(track.id) else mediaPlayer.setSpuTrack(-1)
+                     // Restore playing state if was playing
+                     if (wasPlaying && !mediaPlayer.isPlaying) {
+                         mediaPlayer.play()
+                     }
                      showSubtitleDialog = false
                      onInteraction()
                  },
@@ -506,7 +465,8 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                  tracks = videoTracks,
                  onDismiss = { showQualityDialog = false; onInteraction() },
                  onTrackSelected = { track ->
-                      selectTrack(track, C.TRACK_TYPE_VIDEO)
+                      // Video track switching
+                      if (track != null) mediaPlayer.setVideoTrack(track.id)
                       showQualityDialog = false
                       onInteraction()
                  },
@@ -517,11 +477,10 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
     }
 }
 
+// Updated TrackInfo for VLC (id is Int)
 data class TrackInfo(
-    val id: String,
-    val name: String,
-    val group: TrackGroup, 
-    val index: Int
+    val id: Int,
+    val name: String
 )
 
 @Composable

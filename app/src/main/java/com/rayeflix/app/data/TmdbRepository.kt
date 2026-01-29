@@ -22,37 +22,14 @@ object TmdbRepository {
     private const val BASE_URL = "https://api.themoviedb.org/3"
     private const val IMAGE_BASE_URL = "https://image.tmdb.org/t/p/original"
     
-    private val client = getUnsafeOkHttpClient()
+    private val client = NetworkClient.okHttpClient
 
-    private fun getUnsafeOkHttpClient(): OkHttpClient {
-        try {
-            val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
-                override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
-                override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
-                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
-            })
 
-            val sslContext = javax.net.ssl.SSLContext.getInstance("SSL")
-            sslContext.init(null, trustAllCerts, java.security.SecureRandom())
-
-            return OkHttpClient.Builder()
-                .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as javax.net.ssl.X509TrustManager)
-                .hostnameVerifier { _, _ -> true }
-                .build()
-        } catch (e: Exception) {
-            throw RuntimeException(e)
-        }
-    }
-
-    // Cache to avoid hitting API repeatedly for same title
     private val cache = mutableMapOf<String, TmdbMetadata?>()
 
     suspend fun searchMovie(rawTitle: String): TmdbMetadata? {
         val cleanedTitle = cleanTitle(rawTitle)
         if (cache.containsKey(cleanedTitle)) return cache[cleanedTitle]
-
-        // If no API Key, return null immediately (or mock data if debugging)
-
 
         return withContext(Dispatchers.IO) {
             try {
@@ -72,9 +49,6 @@ object TmdbRepository {
                 if (results != null && results.length() > 0) {
                     val firstResult = results.getJSONObject(0)
                     val id = firstResult.getInt("id")
-                    
-                    // 2. Get Details (for better info usually, but search result is often enough)
-                    // We'll use search result properties for speed
                     val overview = firstResult.optString("overview")
                     val title = firstResult.optString("title")
                     val backdropPath = firstResult.optString("backdrop_path")
@@ -158,10 +132,8 @@ object TmdbRepository {
     }
 
     private fun cleanTitle(original: String): String {
-        // Regex to remove common scene tags
         val noiseRegex = Regex("""(\(\d{4}\))|(\[.*?\])|(S\d+.*)|(E\d+.*)|(HD)|(FHD)|(4K)|(LATINO)|(ESPAÑOL)|(SUB)|(MKV)|(AVI)|(MP4)""", RegexOption.IGNORE_CASE)
         val cleaned = noiseRegex.replace(original, "")
-        // Remove special chars and extra spaces
         return cleaned.replace(Regex("""[^a-zA-Z0-9\sñÑáéíóúÁÉÍÓÚ]"""), " ").trim().replace(Regex("""\s+"""), " ")
     }
 }
