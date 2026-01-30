@@ -150,7 +150,7 @@ class AppViewModel : ViewModel() {
                 val displayMap = mutableMapOf<String, List<Movie>>()
                 
                 grouped.forEach { (category, seriesList) ->
-                    displayMap[category] = seriesList.take(maxItemsPerCategory).map { series ->
+                    displayMap[category] = seriesList.map { series ->
                         Movie(
                             id = series.name.hashCode(),
                             title = series.name,
@@ -167,16 +167,13 @@ class AppViewModel : ViewModel() {
             }
             "TV en vivo" -> {
                 allLive.groupBy { it.categories.firstOrNull() ?: "Canales" }
-                    .mapValues { it.value.take(maxItemsPerCategory) }
             }
             "Películas" -> {
                 allMovies.groupBy { it.categories.firstOrNull() ?: "Películas" }
-                    .mapValues { it.value.take(maxItemsPerCategory) }
             }
             "TV Vivo" -> {
                 // Show all live TV channels
                 allLive.groupBy { it.categories.firstOrNull() ?: "Canales" }
-                    .mapValues { it.value.take(maxItemsPerCategory) }
             }
             else -> {
                 // Home: Mix of everything - limited

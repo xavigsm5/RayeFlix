@@ -51,6 +51,15 @@ import org.videolan.libvlc.util.VLCVideoLayout
 @Composable
 fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navController: androidx.navigation.NavController) {
     val context = LocalContext.current
+    // Keep Screen On
+    DisposableEffect(Unit) {
+        val activity = context.findActivity()
+        activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     var isPlaying by remember { mutableStateOf(true) }
     var currentPosition by remember { mutableStateOf(0L) }
     var totalDuration by remember { mutableStateOf(0L) }
@@ -96,11 +105,14 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
             val media = Media(libVLC, Uri.parse(decodedUrl))
             
             // NOTE: Removing explicit User-Agent to test default VLC behavior.
-            // Sometimes incorrect spoofing triggers more blocks than just being standard VLC.
             
-            // Resilience options
+            // Resilience options for IPTV/Streaming
+            media.addOption(":network-caching=6000") // 6s buffer
+            media.addOption(":clock-jitter=0")
+            media.addOption(":clock-synchro=0")
+            media.addOption(":drop-late-frames")
+            media.addOption(":skip-frames")
             media.addOption(":http-reconnect")
-            media.addOption(":network-caching=10000")
             
             // Enable hardware decoding, but allow fallback to software (force = false)
             media.setHWDecoderEnabled(true, false)
@@ -576,4 +588,13 @@ private fun formatDuration(millis: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format("%02d:%02d", minutes, seconds)
+}
+
+fun android.content.Context.findActivity(): android.app.Activity? {
+    var context = this
+    while (context is android.content.ContextWrapper) {
+        if (context is android.app.Activity) return context
+        context = context.baseContext
+    }
+    return null
 }
