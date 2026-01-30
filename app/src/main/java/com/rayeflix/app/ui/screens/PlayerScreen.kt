@@ -107,9 +107,7 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
             // NOTE: Removing explicit User-Agent to test default VLC behavior.
             
             // Resilience options for IPTV/Streaming
-            media.addOption(":network-caching=6000") // 6s buffer
-            media.addOption(":clock-jitter=0")
-            media.addOption(":clock-synchro=0")
+            media.addOption(":network-caching=10000") // 10s buffer
             media.addOption(":drop-late-frames")
             media.addOption(":skip-frames")
             media.addOption(":http-reconnect")
