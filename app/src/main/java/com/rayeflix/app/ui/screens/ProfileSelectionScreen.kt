@@ -21,18 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import coil.compose.AsyncImage
 import com.rayeflix.app.model.Profile
 import com.rayeflix.app.ui.theme.DarkBackground
 import com.rayeflix.app.ui.theme.NetflixRed
@@ -55,27 +47,20 @@ fun ProfileSelectionScreen(
     val activeProfile = profiles.find { it.id == selectedProfileId }
 
     Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
-        // Background Image (Dynamic based on selected profile)
-        activeProfile?.let { profile ->
-            AsyncImage(
-                model = "https://assets.nflxext.com/ffe/siteui/vlv3/f841d4c7-10e1-40af-bcae-07a3f8dc141a/f6d7434e-d6de-4185-a6d4-c77a2d08737b/US-en-20220502-popsignuptwoweeks-perspective_alpha_website_small.jpg",
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.5f }
-            )
-            
-             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(Color.Black, Color.Transparent),
-                            startX = 0f,
-                            endX = 1500f 
+        // Simple gradient background - no external image loading for better performance
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF1a1a2e),
+                            Color(0xFF16213e),
+                            DarkBackground
                         )
                     )
-            )
-        }
+                )
+        )
 
         Row(
             modifier = Modifier.fillMaxSize()
@@ -109,10 +94,7 @@ fun ProfileSelectionScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Show all actual profiles (filter out any "Add Profile" dummy entries)
-                    val realProfiles = profiles.filter { it.name != "Add Profile" }
-                    
-                    items(realProfiles) { profile ->
+                    items(profiles) { profile ->
                         ProfileSidebarItem(
                             profile = profile,
                             isSelected = profile.id == selectedProfileId,
@@ -200,7 +182,16 @@ fun ProfileSidebarItem(
                 }
                 .focusable()
         ) {
-            // Avatar
+            // Avatar - Simple text-based avatar for better performance
+            val avatarColors = listOf(
+                Color(0xFFE50914), // Netflix red
+                Color(0xFF0077B5), // Blue
+                Color(0xFF00875A), // Green  
+                Color(0xFFB24D00), // Orange
+                Color(0xFF7B2D8E)  // Purple
+            )
+            val avatarColor = avatarColors[profile.id % avatarColors.size]
+            
             Box(
                 modifier = Modifier
                     .size(60.dp)
@@ -211,12 +202,14 @@ fun ProfileSidebarItem(
                     )
                     .padding(2.dp) 
                     .clip(RoundedCornerShape(4.dp))
+                    .background(avatarColor),
+                contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = profile.avatarUrl,
-                    contentDescription = profile.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                Text(
+                    text = profile.name.take(1).uppercase(),
+                    color = White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
             
@@ -290,7 +283,7 @@ fun AddProfileButton(isSelected: Boolean, onClick: () -> Unit) {
 fun EditProfileDialog(profile: Profile, onDismiss: () -> Unit, onSave: (Int, String, String) -> Unit, onDelete: (Int) -> Unit) {
     var name by remember { mutableStateOf(profile.name) }
     var url by remember { mutableStateOf(profile.playlistUrl) }
-    val focusRequester = remember { FocusRequester() }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -313,10 +306,7 @@ fun EditProfileDialog(profile: Profile, onDismiss: () -> Unit, onSave: (Int, Str
                         cursorColor = White
                     ),
                     modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(
-                        onNext = { focusRequester.requestFocus() } 
-                    )
+                    singleLine = true
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
@@ -330,32 +320,48 @@ fun EditProfileDialog(profile: Profile, onDismiss: () -> Unit, onSave: (Int, Str
                         unfocusedTextColor = White,
                         cursorColor = White
                     ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(
-                        onDone = { onSave(profile.id, name, url) }
-                    )
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    
-                    TextButton(onClick = { onDelete(profile.id) }) {
-                        Text("Eliminar", color = Color.Red)
-                    }
-
-                    Row {
-                         TextButton(onClick = onDismiss) {
-                            Text("Cancelar", color = Color.Gray)
+                if (showDeleteConfirm) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween, 
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("¿Eliminar perfil?", color = Color.Red)
+                        Row {
+                            TextButton(onClick = { showDeleteConfirm = false }) {
+                                Text("No", color = Color.Gray)
+                            }
+                            TextButton(onClick = { onDelete(profile.id) }) {
+                                Text("Sí, eliminar", color = Color.Red)
+                            }
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = { onSave(profile.id, name, url) },
-                            colors = ButtonDefaults.buttonColors(containerColor = NetflixRed)
-                        ) {
-                            Text("Guardar", color = White)
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { showDeleteConfirm = true }) {
+                            Text("Eliminar", color = Color.Red)
+                        }
+
+                        Row {
+                            TextButton(onClick = onDismiss) {
+                                Text("Cancelar", color = Color.Gray)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { 
+                                    if (name.isNotBlank()) {
+                                        onSave(profile.id, name.trim(), url.trim()) 
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = NetflixRed),
+                                enabled = name.isNotBlank()
+                            ) {
+                                Text("Guardar", color = White)
+                            }
                         }
                     }
                 }
@@ -369,7 +375,6 @@ fun EditProfileDialog(profile: Profile, onDismiss: () -> Unit, onSave: (Int, Str
 fun AddProfileDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
-    val focusRequester = remember { FocusRequester() }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -392,10 +397,7 @@ fun AddProfileDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
                         cursorColor = White
                     ),
                     modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    keyboardActions = KeyboardActions(
-                        onNext = { focusRequester.requestFocus() } 
-                    )
+                    singleLine = true
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
@@ -409,13 +411,8 @@ fun AddProfileDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
                         unfocusedTextColor = White,
                         cursorColor = White
                     ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(
-                        onDone = { onAdd(name, url) }
-                    )
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
                 Spacer(modifier = Modifier.height(24.dp))
                 
@@ -425,8 +422,13 @@ fun AddProfileDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
-                        onClick = { onAdd(name, url) },
-                        colors = ButtonDefaults.buttonColors(containerColor = NetflixRed)
+                        onClick = { 
+                            if (name.isNotBlank() && url.isNotBlank()) {
+                                onAdd(name.trim(), url.trim()) 
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = NetflixRed),
+                        enabled = name.isNotBlank() && url.isNotBlank()
                     ) {
                         Text("Guardar", color = White)
                     }

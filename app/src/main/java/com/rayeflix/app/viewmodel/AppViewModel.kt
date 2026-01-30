@@ -55,12 +55,11 @@ class AppViewModel : ViewModel() {
         val newProfile = Profile(
             id = newId,
             name = name,
-            avatarUrl = "https://occ-0-3933-116.1.nflxso.net/dnm/api/v6/K6hjPJd6cR6FpVELC5Pd6ovFWzk/AAAABY5cwIbM7shRfcXkfo8Kt3jTMcN47qLM5PRq_dh5qJ8v7vM8f9r3y7s.png?r=fcd", // Random avatar
+            avatarUrl = "https://occ-0-3933-116.1.nflxso.net/dnm/api/v6/K6hjPJd6cR6FpVELC5Pd6ovFWzk/AAAABY5cwIbM7shRfcXkfo8Kt3jTMcN47qLM5PRq_dh5qJ8v7vM8f9r3y7s.png?r=fcd",
             playlistUrl = playlistUrl
         )
-        // Insert before "Add Profile" button if it exists
-        val listWithoutAdd = currentProfiles.filter { it.name != "Add Profile" }
-        _profiles.value = listWithoutAdd + newProfile + Profile(999, "Add Profile", "", "")
+        // Simply add the new profile to the list
+        _profiles.value = currentProfiles + newProfile
     }
 
     fun updateProfile(profileId: Int, newName: String, newUrl: String) {

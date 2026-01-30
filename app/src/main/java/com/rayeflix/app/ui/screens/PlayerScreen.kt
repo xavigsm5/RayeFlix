@@ -88,56 +88,110 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
     var selectedAudioTrack by remember { mutableStateOf<TrackInfo?>(null) }
     var selectedSubtitleTrack by remember { mutableStateOf<TrackInfo?>(null) }
 
-    // LibVLC Initialization
+    // LibVLC Initialization with optimized buffering options
     val libVLC = remember {
         val options = ArrayList<String>()
-        // Optimize for protocol handling
+        // Buffer aumentado para mejor estabilidad en streams en vivo
+        options.add("--network-caching=20000")  // 20s buffer de red
+        options.add("--live-caching=8000")       // 8s para live streams
+        options.add("--file-caching=3000")       // 3s para archivos
+        options.add("--clock-jitter=0")
+        options.add("--clock-synchro=0")
+        options.add("--http-reconnect")          // Reconexión automática
+        options.add("--network-timeout=10000")   // 10s timeout
         
         LibVLC(context, options)
     }
 
     val mediaPlayer = remember(libVLC) { MediaPlayer(libVLC) }
 
+    // Buffering and loading states
+    var isBuffering by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(true) }
+    var hasError by remember { mutableStateOf(false) }
+
     // Prepare Media
     LaunchedEffect(decodedUrl) {
         try {
             Log.d("PlayerScreen", "Playing URL: $decodedUrl")
+            isLoading = true
             val media = Media(libVLC, Uri.parse(decodedUrl))
             
-            // NOTE: Removing explicit User-Agent to test default VLC behavior.
+            // Detect content type for optimal buffer settings
+            val titleLower = (title ?: "").lowercase()
+            val urlLower = decodedUrl.lowercase()
             
-            // Resilience options for IPTV/Streaming
-            media.addOption(":network-caching=10000") // 10s buffer
+            // Check if it's 4K content
+            val is4K = titleLower.contains("4k") || 
+                       titleLower.contains("2160") || 
+                       titleLower.contains("uhd") ||
+                       urlLower.contains("4k") ||
+                       urlLower.contains("2160")
+            
+            // Check if it's live content              
+            val isLive = urlLower.contains("/live/") || 
+                         titleLower.contains("live") ||
+                         !urlLower.endsWith(".mkv") && 
+                         !urlLower.endsWith(".mp4") && 
+                         !urlLower.endsWith(".avi")
+            
+            // Use same buffer for all content types to avoid memory issues
+            // 4K requires hardware decoding, not larger buffers
+            val networkCache = 20000  // 20s for all content
+            val liveCache = 8000
+            val fileCache = 3000
+            
+            Log.d("PlayerScreen", "Content: 4K=$is4K, Live=$isLive, Buffer=${networkCache}ms")
+            
+            // Apply optimized options
+            media.addOption(":network-caching=$networkCache")
+            media.addOption(":file-caching=$fileCache")
+            media.addOption(":live-caching=$liveCache")
+            media.addOption(":sout-mux-caching=5000")
+            media.addOption(":clock-jitter=0")
+            media.addOption(":clock-synchro=0")
             media.addOption(":drop-late-frames")
             media.addOption(":skip-frames")
             media.addOption(":http-reconnect")
+            media.addOption(":http-continuous=1")
+            media.addOption(":network-timeout=15000")  // 15s timeout for slow connections
             
-            // Enable hardware decoding, but allow fallback to software (force = false)
+            // Enable hardware decoding - essential for 4K
             media.setHWDecoderEnabled(true, false)
             mediaPlayer.media = media
-            media.release() // MediaPlayer keeps a reference
+            media.release()
             mediaPlayer.play()
         } catch (e: Exception) {
             Log.e("PlayerScreen", "Error loading media", e)
+            isLoading = false
+            hasError = true
         }
     }
 
-    // Event Listener
+    // Event Listener with buffering recovery
     DisposableEffect(mediaPlayer) {
         val listener = object : MediaPlayer.EventListener {
             override fun onEvent(event: MediaPlayer.Event) {
                 when (event.type) {
                     MediaPlayer.Event.TimeChanged -> {
                         currentPosition = event.timeChanged
+                        if (isBuffering) isBuffering = false
                     }
                     MediaPlayer.Event.LengthChanged -> {
                         totalDuration = event.lengthChanged
                     }
+                    MediaPlayer.Event.Buffering -> {
+                        val bufferPercent = event.buffering
+                        Log.d("PlayerScreen", "Buffering: $bufferPercent%")
+                        isBuffering = bufferPercent < 100f
+                    }
                     MediaPlayer.Event.Playing -> {
                         isPlaying = true
+                        isBuffering = false
+                        isLoading = false  // Video started playing
+                        Log.d("PlayerScreen", "Video started playing")
                         if (totalDuration == 0L) totalDuration = mediaPlayer.length
                         
-                        // Update tracks when playing starts
                         val audio = mediaPlayer.audioTracks
                         if (audio != null) {
                             audioTracks = audio.mapNotNull { if (it.id == -1) null else TrackInfo(it.id, it.name) }
@@ -148,7 +202,7 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                              subtitleTracks = spu.mapNotNull { if (it.id == -1) null else TrackInfo(it.id, it.name) }
                         }
 
-                        // Video tracks less common to switch in VLC android interface but available
+                        
                         val vid = mediaPlayer.videoTracks
                         if (vid != null) {
                              videoTracks = vid.mapNotNull { if (it.id == -1) null else TrackInfo(it.id, it.name) }
@@ -157,11 +211,20 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
                     MediaPlayer.Event.Paused -> {
                         isPlaying = false
                     }
+                    MediaPlayer.Event.Stopped -> {
+                        // If stopped unexpectedly while playing, try to recover
+                        Log.w("PlayerScreen", "Playback stopped unexpectedly")
+                        isPlaying = false
+                    }
                     MediaPlayer.Event.EndReached -> {
                         isPlaying = false
                     }
                     MediaPlayer.Event.EncounteredError -> {
-                        Log.e("PlayerScreen", "VLC Error")
+                        Log.e("PlayerScreen", "VLC Error encountered")
+                        isBuffering = false
+                        isLoading = false
+                        isPlaying = false
+                        hasError = true
                     }
                 }
             }
@@ -234,6 +297,78 @@ fun PlayerScreen(videoUrl: String, titleArg: String, subtitleArg: String, navCon
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // Loading/Buffering Indicator
+        AnimatedVisibility(
+            visible = isLoading || isBuffering,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = NetflixRed,
+                        modifier = Modifier.size(64.dp),
+                        strokeWidth = 4.dp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = if (isLoading) "Cargando..." else "Buffering...",
+                        color = White,
+                        fontSize = 16.sp
+                    )
+                }
+            }
+        }
+
+        // Error Screen
+        if (hasError) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "❌",
+                        fontSize = 48.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Error al reproducir",
+                        color = White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "No se pudo cargar el contenido",
+                        color = Color.Gray,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = { navController.popBackStack() },
+                        colors = ButtonDefaults.buttonColors(containerColor = NetflixRed)
+                    ) {
+                        Text("Volver", color = White)
+                    }
+                }
+            }
+        }
 
         // Custom Controls Overlay
         AnimatedVisibility(
